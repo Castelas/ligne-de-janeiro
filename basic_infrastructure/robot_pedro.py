@@ -1,6 +1,7 @@
 # robot_new.py — seguidor de linha com parada e decisão em interseção
 # Lógica de estado: FOLLOW, LOST, APPROACHING, STOPPING, STOPPED,
 #                  TURN_LEFT, TURN_RIGHT, GO_STRAIGHT
+# (Versão com correção de "overshoot" da câmera)
 
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -296,6 +297,7 @@ def main():
     #          'TURN_LEFT', 'TURN_RIGHT', 'GO_STRAIGHT'
     state = 'FOLLOW'
     action_start_time = 0.0 # Generaliza o temporizador para todas as ações
+    last_known_y = -1.0     # Última posição Y válida da interseção
 
     current_mode = MODO_AUTO
     v_esq, v_dir = 0, 0
@@ -330,6 +332,7 @@ def main():
                 print(f"Modo: {current_mode}")
                 v_esq, v_dir = 0, 0
                 state = 'FOLLOW'
+                last_known_y = -1.0 # Reseta
 
             conf = 0  # default p/ HUD caso esteja no modo MANUAL
             intersections = []
@@ -364,24 +367,50 @@ def main():
                         lost_frames += 1
                         if lost_frames >= LOST_MAX_FRAMES:
                             state = 'LOST'
+                            last_known_y = -1.0 # Reseta
                     elif target_y > Y_START_SLOWING:
                         print("Interseção detectada! Iniciando aproximação.")
                         state = 'APPROACHING'
+                        last_known_y = target_y # Armazena Y inicial
                     else:
+                        # Tudo normal, sem interseção
                         lost_frames = 0
                         last_err = erro
+                        last_known_y = -1.0 # Garante que está limpo
 
                 elif state == 'APPROACHING':
+                    # Prioridade 1: Perdemos a linha? (Condição de falha)
                     if conf == 0:
+                        print("Linha perdida durante aproximação.")
                         state = 'LOST'
-                    elif target_y == -1:
-                        print("Interseção perdida, voltando a seguir a linha.")
-                        state = 'FOLLOW'
-                    elif target_y >= Y_TARGET_STOP:
-                        print("Alvo atingido. 'Andando mais um pouco'...")
+                        last_known_y = -1.0 # Reseta
+                        
+                    # Prioridade 2: Ainda vemos a interseção?
+                    elif target_y != -1:
+                         last_known_y = target_y # Atualiza a posição
+                         
+                         # GATILHO 1: Atingimos o alvo de Y?
+                         if last_known_y >= Y_TARGET_STOP:
+                            print("Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
+                            state = 'STOPPING'
+                            action_start_time = time.time()
+                            last_known_y = -1.0 # Reseta para a próxima
+                         else:
+                            # Se não atingimos, apenas continuamos seguindo a linha
+                            last_err = erro 
+                    
+                    # Prioridade 3: A interseção DESAPARECEU (target_y == -1)
+                    # MAS ainda vemos a LINHA (conf == 1)?
+                    # (Gatilho 2: A câmera passou por cima da interseção)
+                    elif target_y == -1 and conf == 1:
+                        print("Interseção passou do FoV. 'Andando mais um pouco'...")
                         state = 'STOPPING'
-                        action_start_time = time.time() # Inicia timer do crawl
-                    else:
+                        action_start_time = time.time()
+                        last_known_y = -1.0 # Reseta para a próxima
+
+                    # Se nenhuma das anteriores, e ainda vemos a linha,
+                    # apenas continuamos seguindo a linha.
+                    elif conf == 1:
                         last_err = erro
                 
                 elif state == 'STOPPING':
@@ -408,11 +437,13 @@ def main():
                     if (time.time() - action_start_time) > TURN_DURATION_S:
                         print("Giro completo. Procurando linha...")
                         state = 'FOLLOW'
+                        last_err = -1 # Influencia a busca para a esquerda
 
                 elif state == 'TURN_RIGHT':
                     if (time.time() - action_start_time) > TURN_DURATION_S:
                         print("Giro completo. Procurando linha...")
                         state = 'FOLLOW'
+                        last_err = 1 # Influencia a busca para a direita
 
                 elif state == 'GO_STRAIGHT':
                     if (time.time() - action_start_time) > STRAIGHT_DURATION_S:
@@ -425,6 +456,7 @@ def main():
                         state = 'FOLLOW'
                         lost_frames = 0
                         last_err = erro
+                        last_known_y = -1.0 # Reseta
 
                 # 2. Ações de Estado (Definir velocidades)
                 if state == 'FOLLOW':
@@ -437,13 +469,20 @@ def main():
                         v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
                 
                 elif state == 'APPROACHING':
-                    progress = (target_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
+                    # USA last_known_y para o cálculo, não target_y
+                    progress = 0.0
+                    if (Y_TARGET_STOP - Y_START_SLOWING) > 0: # Evita divisão por zero
+                        progress = (last_known_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
+                    
                     speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
+                    
                     current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
                     base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
+                    # Segue a linha (erro) mesmo durante a frenagem
                     v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
 
                 elif state == 'STOPPING':
+                    # "Anda mais um pouco" - crawl reto
                     v_esq, v_dir = CRAWL_SPEED, CRAWL_SPEED
                 
                 elif state == 'STOPPED':
@@ -459,6 +498,7 @@ def main():
                     v_esq, v_dir = STRAIGHT_SPEED, STRAIGHT_SPEED
                 
                 elif state == 'LOST':
+                    # Lógica original de busca
                     turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                     v_esq, v_dir = int(turn), int(-turn)
 
@@ -467,15 +507,19 @@ def main():
                 if key == 'w':   
                     v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
                     state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
                 elif key == 's': 
                     v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
                     state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
                 elif key == 'a': 
                     v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
                     state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
                 elif key == 'd': 
                     v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
                     state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
                 elif key not in ['i', 'j', 'l']: # Ignora teclas de decisão no modo manual
                     v_esq, v_dir = 0, 0
 
