@@ -42,7 +42,7 @@ MODO_MANUAL = "MANUAL"
 E_MAX_PIX       = IMG_WIDTH // 2        # erro máximo usado para escalonar velocidade
 V_MIN           = 0                     # velocidade mínima admitida no AUTO
 SEARCH_SPEED    = 120                   # velocidade para girar no lugar em LOST
-LOST_MAX_FRAMES = 5                     # frames sem confiança até entrar em LOST
+LOST_MAX_FRAMES = 8                     # frames sem confiança até entrar em LOST
 DEAD_BAND       = 6                     # |erro| <= DEAD_BAND => erro = 0
 ROI_BOTTOM_FRAC = 0.55                  # início da ROI inferior (55% da altura)
 MIN_AREA_FRAC   = 0.004                 # área mínima do contorno na ROI (fração)
@@ -52,14 +52,17 @@ LINE_POLARITY   = 'auto'                # 'white', 'black' ou 'auto'
 USE_ADAPTIVE    = False                 # threshold adaptativo desligado por padrão
 
 # NOVOS PARÂMETROS PARA INTERSEÇÃO
-Y_START_SLOWING_FRAC = 0.70  # Começa a frear quando a interseção passa de 70% da altura
+Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 0.95    # Ponto de parada (para iniciar o "crawl") a 95% da altura
-CRAWL_SPEED = 80             # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.5       # Duração (segundos) do "anda mais um pouco"
+CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
+CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 
 # NOVOS PARÂMETROS PARA AÇÕES NA INTERSEÇÃO
 TURN_SPEED = 130             # Velocidade para girar (90 graus)
-TURN_DURATION_S = 1.5        # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
+TURN_DURATION_S = 1          # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
+STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
+
+TURN_DURATION_S = 1          # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
 STRAIGHT_SPEED = 100         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar (AJUSTAR)
 
@@ -68,7 +71,7 @@ STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar (AJUSTAR)
 # Defina a sequência de ações que o robô deve tomar nas interseções
 # Comandos válidos: "RIGHT", "LEFT", "STRAIGHT"
 # =========================================================================
-ACTION_SEQUENCE = ["RIGHT", "LEFT", "RIGHT"]
+ACTION_SEQUENCE = ["LEFT", "STRAIGHT", "STRAIGHT", "RIGHT"]
 # =========================================================================
 
 
