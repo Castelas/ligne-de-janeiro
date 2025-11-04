@@ -1,0 +1,23 @@
+# Let git determine how to handle unspecified file formats
+*      text=auto
+
+# These files are text but should not be normalized (wrt crlf)
+*.vcd  text eol=lf
+*.bat  text eol=crlf
+
+# These files are text and should be normalized (wrt crlf)
+# The diff command may be specificcd
+*.h    diff=cpp
+*.m    diff=matlab
+*.tex	 diff=tex
+*.bib  diff=tex
+*.cls  diff=tex
+*.bst  diff=tex
+*.ino text
+
+# These files are binary and should be left untouched
+# (binary is a macro for -text -diff)
+*.bmp  binary
+*.ps   binary
+*.eps  binary
+*.pdf  binary

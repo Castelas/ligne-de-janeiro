@@ -1,3 +1,15 @@
+# Custom ignores
+.hg*
+*.wav
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.dvi
+*.idx
+*.log
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
