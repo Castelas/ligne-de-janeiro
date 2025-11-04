@@ -498,4 +498,146 @@ def main():
                     if (Y_TARGET_STOP - Y_START_SLOWING) > 0: # Evita divisão por zero
                         progress = (last_known_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
                     
-                    speed_factor = 1.0 -
+                    speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
+                    
+                    current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
+                    base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
+                    # Segue a linha (erro) mesmo durante a frenagem
+                    v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
+
+                elif state == 'STOPPING':
+                    # "Anda mais um pouco" - crawl reto
+                    v_esq, v_dir = CRAWL_SPEED, CRAWL_SPEED
+                
+                elif state == 'STOPPED':
+                    # Este estado dura apenas 1 frame, então a velocidade é 0
+                    # antes de mudar para TURN/STRAIGHT
+                    v_esq, v_dir = 0, 0
+                
+                elif state == 'TURN_LEFT':
+                    v_esq, v_dir = -TURN_SPEED, TURN_SPEED
+
+                elif state == 'TURN_RIGHT':
+                    v_esq, v_dir = TURN_SPEED, -TURN_SPEED
+
+                elif state == 'GO_STRAIGHT':
+                    v_esq, v_dir = STRAIGHT_SPEED, STRAIGHT_SPEED
+                
+                elif state == 'LOST':
+                    # Lógica original de busca
+                    turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
+                    v_esq, v_dir = int(turn), int(-turn)
+
+            else:
+                # MODO MANUAL (w,a,s,d reinicia o estado E A ROTA)
+                if key == 'w':   
+                    v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
+                    state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
+                    intersection_counter = 0 # Reseta a rota
+                elif key == 's': 
+                    v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
+                    state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
+                    intersection_counter = 0 # Reseta a rota
+                elif key == 'a': 
+                    v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
+                    state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
+                    intersection_counter = 0 # Reseta a rota
+                elif key == 'd': 
+                    v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
+                    state = 'FOLLOW'
+                    last_known_y = -1.0 # Reseta
+                    intersection_counter = 0 # Reseta a rota
+                elif key != '':
+                    v_esq, v_dir = 0, 0
+
+            enviar_comando_motor_serial(arduino, v_esq, v_dir)
+
+            # ---------------- VISUALIZAÇÃO ----------------
+            display_frame = image.copy()
+            
+            if current_mode != MODO_AUTO:
+                mask = build_binary_mask(display_frame)
+                intersections, detected_lines_for_hud = detect_intersections(mask)
+
+            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+            display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
+            
+            # desenha linhas (verde)
+            for rho, theta in detected_lines_for_hud:
+                a, b = np.cos(theta), np.sin(theta)
+                x0, y0 = a * rho, b * rho
+                x1 = int(x0 + 1000 * (-b));  y1 = int(y0 + 1000 * (a))
+                x2 = int(x0 - 1000 * (-b));  y2 = int(y0 - 1000 * (a))
+                cv2.line(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+
+            # interseções (vermelho)
+            for idx, (x, y) in enumerate(intersections, 1):
+                cv2.circle(display_frame, (x, y), 8, (0, 0, 255), -1)
+                cv2.circle(display_frame, (x, y), 12, (255, 255, 255), 2)
+                cv2.putText(display_frame, f"{idx}", (x + 15, y - 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+            # Atualiza o HUD com o novo estado
+            cv2.putText(display_frame, f"Modo: {current_mode}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
+            
+            # Texto do estado (com cor)
+            state_color = (0, 255, 0) # Verde para FOLLOW
+            if state == 'LOST': state_color = (0, 0, 255) # Vermelho
+            elif state == 'APPROACHING': state_color = (0, 255, 255) # Amarelo
+            elif state == 'STOPPING': state_color = (255, 0, 255) # Magenta
+            elif state == 'STOPPED': state_color = (255, 0, 0) # Azul
+            elif state in ['TURN_LEFT', 'TURN_RIGHT', 'GO_STRAIGHT']: state_color = (255, 165, 0) # Laranja
+            
+            cv2.putText(display_frame, f"State: {state}", (10, 85),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 2)
+
+            # Adiciona prompt de Ação Automática
+            if state == 'STOPPING':
+                 next_action_index = intersection_counter
+                 if next_action_index >= len(ACTION_SEQUENCE):
+                     next_action_index = 0 # Mostra que vai reiniciar
+                 
+                 next_action = ACTION_SEQUENCE[next_action_index]
+                 
+                 cv2.putText(display_frame, f"Parando. Prox: {next_action}", (10, 170),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            elif state in ['TURN_LEFT', 'TURN_RIGHT', 'GO_STRAIGHT']:
+                 cv2.putText(display_frame, f"Acao: {state}", (10, 170),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+
+            cv2.putText(display_frame, f"Lines: {len(detected_lines_for_hud)}", (10, 105),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            cv2.putText(display_frame, f"Intersections: {len(intersections)}", (10, 125),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            cv2.putText(display_frame, f"Conf: {conf}  LostFrames: {lost_frames}", (10, 145),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
+
+            _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            pub_socket.send(base64.b64encode(buffer))
+            raw.truncate(0)
+
+    finally:
+        print("Encerrando...")
+        try:
+            enviar_comando_motor_serial(arduino, 0, 0)
+            arduino.write(b'a\n'); arduino.close()
+        except Exception:
+            pass
+        try:
+            pub_socket.close(); req_socket.close()
+        except Exception:
+            pass
+        try:
+            context.term()
+        except Exception:
+            pass
+
+if __name__ == "__main__":
+    main()
