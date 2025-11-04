@@ -1,5 +1,6 @@
-# robot_new.py — seguidor de linha com parada em interseção
-# Lógica de estado: FOLLOW, LOST, APPROACHING, STOPPING, STOPPED
+# robot_new.py — seguidor de linha com parada e decisão em interseção
+# Lógica de estado: FOLLOW, LOST, APPROACHING, STOPPING, STOPPED,
+#                  TURN_LEFT, TURN_RIGHT, GO_STRAIGHT
 
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -55,6 +56,12 @@ Y_START_SLOWING_FRAC = 0.70  # Começa a frear quando a interseção passa de 70
 Y_TARGET_STOP_FRAC = 0.95    # Ponto de parada (para iniciar o "crawl") a 95% da altura
 CRAWL_SPEED = 80             # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.5       # Duração (segundos) do "anda mais um pouco"
+
+# NOVOS PARÂMETROS PARA AÇÕES NA INTERSEÇÃO
+TURN_SPEED = 130             # Velocidade para girar (90 graus)
+TURN_DURATION_S = 0.7        # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
+STRAIGHT_SPEED = 100         # Velocidade para "seguir reto"
+STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar (AJUSTAR)
 
 
 # --- SERIAL ---
@@ -282,12 +289,13 @@ def main():
     except Exception:
         pass
 
-    # Estado do seguidor (sem derivativo)
+    # Estado do seguidor
     last_err = 0.0
     lost_frames = 0
-    # ESTADOS: 'FOLLOW', 'LOST', 'APPROACHING', 'STOPPING', 'STOPPED'
+    # ESTADOS: 'FOLLOW', 'LOST', 'APPROACHING', 'STOPPING', 'STOPPED',
+    #          'TURN_LEFT', 'TURN_RIGHT', 'GO_STRAIGHT'
     state = 'FOLLOW'
-    stop_crawl_start_time = 0.0 # Novo: temporizador para o "crawl"
+    action_start_time = 0.0 # Generaliza o temporizador para todas as ações
 
     current_mode = MODO_AUTO
     v_esq, v_dir = 0, 0
@@ -332,9 +340,7 @@ def main():
                 # Processamento de imagem (linha e interseções)
                 image, erro, conf = processar_imagem(image)
                 
-                # A detecção de interseção já é feita na seção VISUALIZAÇÃO
-                # Vamos movê-la para cá para que possamos usá-la
-                display_frame_temp = image.copy() # Copia temporária para detecção
+                display_frame_temp = image.copy()
                 mask = build_binary_mask(display_frame_temp)
                 intersections, detected_lines_for_hud = detect_intersections(mask)
 
@@ -342,7 +348,6 @@ def main():
                 target_intersection = None
                 target_y = -1
                 if intersections:
-                    # Ordena por 'y' (maior 'y' primeiro = mais baixo na imagem)
                     intersections.sort(key=lambda p: p[1], reverse=True)
                     target_intersection = intersections[0]
                     target_y = target_intersection[1]
@@ -363,31 +368,56 @@ def main():
                         print("Interseção detectada! Iniciando aproximação.")
                         state = 'APPROACHING'
                     else:
-                        # Se conf=1 e sem interseção, reseta 'lost_frames'
                         lost_frames = 0
                         last_err = erro
 
                 elif state == 'APPROACHING':
-                    if conf == 0: # Perdeu a linha durante a aproximação
+                    if conf == 0:
                         state = 'LOST'
-                    elif target_y == -1: # Perdeu a interseção
+                    elif target_y == -1:
                         print("Interseção perdida, voltando a seguir a linha.")
                         state = 'FOLLOW'
                     elif target_y >= Y_TARGET_STOP:
                         print("Alvo atingido. 'Andando mais um pouco'...")
                         state = 'STOPPING'
-                        stop_crawl_start_time = time.time()
+                        action_start_time = time.time() # Inicia timer do crawl
                     else:
-                        # Continua em 'APPROACHING'
                         last_err = erro
                 
                 elif state == 'STOPPING':
-                    if (time.time() - stop_crawl_start_time) > CRAWL_DURATION_S:
-                        print("Parada completa na interseção.")
+                    if (time.time() - action_start_time) > CRAWL_DURATION_S:
+                        print("Parada completa. Aguardando decisão (i=reto, j=esq, l=dir).")
                         state = 'STOPPED'
                 
                 elif state == 'STOPPED':
-                    pass # Permanece parado
+                    # Espera por uma tecla de decisão
+                    if key == 'j':
+                        print("Virando à esquerda...")
+                        state = 'TURN_LEFT'
+                        action_start_time = time.time()
+                    elif key == 'l':
+                        print("Virando à direita...")
+                        state = 'TURN_RIGHT'
+                        action_start_time = time.time()
+                    elif key == 'i':
+                        print("Seguindo reto...")
+                        state = 'GO_STRAIGHT'
+                        action_start_time = time.time()
+                
+                elif state == 'TURN_LEFT':
+                    if (time.time() - action_start_time) > TURN_DURATION_S:
+                        print("Giro completo. Procurando linha...")
+                        state = 'FOLLOW'
+
+                elif state == 'TURN_RIGHT':
+                    if (time.time() - action_start_time) > TURN_DURATION_S:
+                        print("Giro completo. Procurando linha...")
+                        state = 'FOLLOW'
+
+                elif state == 'GO_STRAIGHT':
+                    if (time.time() - action_start_time) > STRAIGHT_DURATION_S:
+                        print("Atravessou. Procurando linha...")
+                        state = 'FOLLOW'
 
                 elif state == 'LOST':
                     if conf == 1:
@@ -399,63 +429,61 @@ def main():
                 # 2. Ações de Estado (Definir velocidades)
                 if state == 'FOLLOW':
                     if conf == 1:
-                        # Lógica original de seguimento de linha
                         speed_scale = max(0.35, 1.0 - abs(erro) / float(E_MAX_PIX))
                         base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
                         v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
                     else:
-                        # Janela de tolerância antes de declarar LOST
                         base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                         v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
                 
                 elif state == 'APPROACHING':
-                    # Segue a linha, mas com velocidade reduzida gradualmente
-                    # Calcula o fator de velocidade (1.0 = rápido, 0.0 = lento)
                     progress = (target_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
                     speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
-                    
-                    # A velocidade base é reduzida
                     current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
                     base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
                     v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
 
                 elif state == 'STOPPING':
-                    # "Anda mais um pouco" - crawl reto
                     v_esq, v_dir = CRAWL_SPEED, CRAWL_SPEED
                 
                 elif state == 'STOPPED':
                     v_esq, v_dir = 0, 0
                 
+                elif state == 'TURN_LEFT':
+                    v_esq, v_dir = -TURN_SPEED, TURN_SPEED
+
+                elif state == 'TURN_RIGHT':
+                    v_esq, v_dir = TURN_SPEED, -TURN_SPEED
+
+                elif state == 'GO_STRAIGHT':
+                    v_esq, v_dir = STRAIGHT_SPEED, STRAIGHT_SPEED
+                
                 elif state == 'LOST':
-                    # Lógica original de busca
                     turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                     v_esq, v_dir = int(turn), int(-turn)
 
             else:
-                # MODO MANUAL
+                # MODO MANUAL (w,a,s,d reinicia o estado)
                 if key == 'w':   
                     v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
-                    state = 'FOLLOW' # Reinicia o estado
+                    state = 'FOLLOW'
                 elif key == 's': 
                     v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
-                    state = 'FOLLOW' # Reinicia o estado
+                    state = 'FOLLOW'
                 elif key == 'a': 
                     v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
-                    state = 'FOLLOW' # Reinicia o estado
+                    state = 'FOLLOW'
                 elif key == 'd': 
                     v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
-                    state = 'FOLLOW' # Reinicia o estado
-                elif key != '':  
+                    state = 'FOLLOW'
+                elif key not in ['i', 'j', 'l']: # Ignora teclas de decisão no modo manual
                     v_esq, v_dir = 0, 0
 
             enviar_comando_motor_serial(arduino, v_esq, v_dir)
 
             # ---------------- VISUALIZAÇÃO ----------------
-            # A detecção de interseção foi movida para cima,
-            # mas precisamos redesenhar no frame final.
             display_frame = image.copy()
             
-            # Recria a máscara se não estivermos no modo AUTO (pois não foi criada)
             if current_mode != MODO_AUTO:
                 mask = build_binary_mask(display_frame)
                 intersections, detected_lines_for_hud = detect_intersections(mask)
@@ -491,9 +519,15 @@ def main():
             elif state == 'APPROACHING': state_color = (0, 255, 255) # Amarelo
             elif state == 'STOPPING': state_color = (255, 0, 255) # Magenta
             elif state == 'STOPPED': state_color = (255, 0, 0) # Azul
+            elif state in ['TURN_LEFT', 'TURN_RIGHT', 'GO_STRAIGHT']: state_color = (255, 165, 0) # Laranja
             
             cv2.putText(display_frame, f"State: {state}", (10, 85),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 2)
+
+            # Adiciona prompt de decisão
+            if state == 'STOPPED':
+                 cv2.putText(display_frame, "DECIDA: i(reto), j(esq), l(dir)", (10, 170),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
             cv2.putText(display_frame, f"Lines: {len(detected_lines_for_hud)}", (10, 105),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
