@@ -1,4 +1,5 @@
-# robot.py (versão final com modo manual/automático)
+# robot2.py — seguidor de linha com ROI, confiança e estado FOLLOW/LOST (sem derivativo)
+
 from picamera.array import PiRGBArray
 from picamera import PiCamera
 import cv2
@@ -7,355 +8,455 @@ import base64
 import time
 import numpy as np
 import serial
-from itertools import combinations
 
-# ###########################################################################
-# ##############           PARÂMETROS DE CALIBRAGEM           ###############
-# ###########################################################################
-# --- PARÂMETROS DE REDE ---
-SERVER_IP = "192.168.137.22"  # <--- MUDE PARA O IP DO SEU SERVIDOR
-MY_ID = 'bot001'
+# ============================= PARÂMETROS GERAIS =============================
+# --- REDE ---
+SERVER_IP = "192.168.137.78"     # <--- COLOQUE o IP do servidor (control.py)
+MY_ID     = "bot001"             # identificador do robô na rede
 
-# --- PARÂMETROS DE VISÃO ---
+# --- VISÃO ---
 IMG_WIDTH, IMG_HEIGHT = 320, 240
-THRESHOLD_VALUE = 200
+THRESHOLD_VALUE = 180
 
-# --- PARÂMETROS DE CONTROLE ---
+# Hough (apenas para overlay/depuração visual — NÃO usado no controle)
+HOUGHP_THRESHOLD    = 35
+HOUGHP_MINLEN_FRAC  = 0.35
+HOUGHP_MAXGAP       = 20
+ROI_CROP_FRAC       = 0.20  # zera 20% do topo para reduzir ruído no overlay
+RHO_MERGE           = 40
+THETA_MERGE_DEG     = 6
+ORTH_TOL_DEG        = 15
+PAR_TOL_DEG         = 8
+
+# --- CONTROLE (P puro; sem derivativo ainda) ---
 VELOCIDADE_BASE = 150
 VELOCIDADE_CURVA = 100
-Kp = 0.8
+Kp = 0.75
 VELOCIDADE_MAX = 255
-MODO_AUTO = "AUTOMATICO"
+MODO_AUTO   = "AUTOMATICO"
 MODO_MANUAL = "MANUAL"
 
-# --- PARÂMETROS DE COMUNICAÇÃO SERIAL ---
+# Ajustes (detecção/recuperação)
+E_MAX_PIX       = IMG_WIDTH // 2        # erro máximo usado para escalonar velocidade
+V_MIN           = 0                     # velocidade mínima admitida no AUTO
+SEARCH_SPEED    = 120                   # velocidade para girar no lugar em LOST
+LOST_MAX_FRAMES = 5                     # frames sem confiança até entrar em LOST
+DEAD_BAND       = 6                     # |erro| <= DEAD_BAND => erro = 0
+ROI_BOTTOM_FRAC = 0.55                  # início da ROI inferior (55% da altura)
+MIN_AREA_FRAC   = 0.004                 # área mínima do contorno na ROI (fração)
+MAX_AREA_FRAC   = 0.25                  # área máxima aceitável (descarta “piso inteiro”)
+ASPECT_MIN      = 2.0                   # formato “faixa”: comprimento/largura mínimo
+LINE_POLARITY   = 'auto'                # 'white', 'black' ou 'auto'
+USE_ADAPTIVE    = False                 # threshold adaptativo desligado por padrão
+
+# --- SERIAL ---
 PORTA_SERIAL = '/dev/ttyACM0'
 BAUDRATE = 115200
-# --- PARAMETROS DE ESTADO/RECUPERACAO ---
-LOST_MAX_FRAMES = 6
-FOUND_MIN_FRAMES = 2
-SEARCH_SPEED = 120
-SPIN_PERIOD = 1.2
-REVERSE_TIME_S = 1.5
-SPIN_TIME_S = 1.6   # ajuste conforme necessário para ~360°
-# ###########################################################################
 
-# Funções de detecção de interseções (adicionadas para visualização)
-def line_intersection(line1, line2):
-    """Calculate intersection point of two lines."""
-    rho1, theta1 = line1
-    rho2, theta2 = line2
+# ======================== OBSTACLE/ULTRASSOM CONFIG ==========================
+REVERSE_TIME_S = 1.5     # tempo de ré quando obstáculo detectado
+SPIN_TIME_S    = 1.6     # tempo aproximado para ~360° (ajuste no seu robô)
+ULTRA_THRESHOLD_CM = 25  # distância para considerar obstáculo
 
-    # Convert to cartesian coordinates
-    a1 = np.cos(theta1)
-    b1 = np.sin(theta1)
-    a2 = np.cos(theta2)
-    b2 = np.sin(theta2)
+# ============================ AUXILIARES VISUAIS ============================
+def _angle_diff(a, b):
+    d = abs((a - b) % np.pi)
+    return min(d, np.pi - d)
 
-    # Check if lines are parallel
-    if abs(theta1 - theta2) < 0.01 or abs(abs(theta1 - theta2) - np.pi) < 0.01:
-        return None
+def _deg(x): return np.deg2rad(x)
 
-    # Calculate intersection
-    det = a1 * b2 - a2 * b1
-    if abs(det) < 1e-10:
-        return None
+def _dedup_points(points, radius=25):
+    if not points: return []
+    used = [False]*len(points); out = []
+    for i, p in enumerate(points):
+        if used[i]: continue
+        cluster = [p]; used[i] = True
+        for j in range(i+1, len(points)):
+            if (not used[j]) and (np.hypot(points[j][0]-p[0], points[j][1]-p[1]) < radius):
+                used[j] = True; cluster.append(points[j])
+        cx = int(np.mean([x for x,_ in cluster])); cy = int(np.mean([y for _,y in cluster]))
+        out.append((cx, cy))
+    return out
 
-    x = (b2 * rho1 - b1 * rho2) / det
-    y = (a1 * rho2 - a2 * rho1) / det
+def build_binary_mask(image_bgr):
+    """Máscara binária para overlay de linhas/interseções (não usada no controle)."""
+    h, w = image_bgr.shape[:2]
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, mask = cv2.threshold(gray, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
+    k = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)
+    top = int(h * ROI_CROP_FRAC)
+    mask[:top, :] = 0
+    return mask
 
-    return (int(x), int(y))
+def detect_segments(mask):
+    h, w = mask.shape[:2]
+    edges = cv2.Canny(mask, 50, 150, apertureSize=3)
+    min_len = int(min(h, w) * HOUGHP_MINLEN_FRAC)
+    seg = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=HOUGHP_THRESHOLD,
+                          minLineLength=min_len, maxLineGap=HOUGHP_MAXGAP)
+    if seg is None: return np.empty((0,4), dtype=int)
+    return seg.reshape(-1, 4)
 
-def merge_similar_lines(lines, rho_threshold=30, theta_threshold=np.pi/18):
-    """Merge lines that are very close to each other."""
-    if lines is None or len(lines) == 0:
-        return []
-
-    lines = lines.reshape(-1, 2)
+def segments_to_lines_rhotheta(segments):
+    if len(segments) == 0: return []
+    lines = []
+    for x1, y1, x2, y2 in segments:
+        ang_seg = np.arctan2((y2 - y1), (x2 - x1))
+        theta = (ang_seg + np.pi/2) % np.pi
+        rho = x1*np.cos(theta) + y1*np.sin(theta)
+        lines.append((rho, theta))
     merged = []
-
     for rho, theta in lines:
-        found_similar = False
-
-        for i, (existing_rho, existing_theta) in enumerate(merged):
-            rho_diff = abs(rho - existing_rho)
-            theta_diff = min(abs(theta - existing_theta),
-                           abs(abs(theta - existing_theta) - np.pi))
-
-            if rho_diff < rho_threshold and theta_diff < theta_threshold:
-                # Merge with existing line
-                avg_rho = (existing_rho + rho) / 2
-                avg_theta = (existing_theta + theta) / 2
-                merged[i] = (avg_rho, avg_theta)
-                found_similar = True
-                break
-
-        if not found_similar:
-            merged.append((rho, theta))
-
+        found = False
+        for i, (r, t) in enumerate(merged):
+            if abs(rho - r) < RHO_MERGE and _angle_diff(theta, t) < _deg(THETA_MERGE_DEG):
+                merged[i] = ((rho + r)/2.0, (theta + t)/2.0); found = True; break
+        if not found: merged.append((float(rho), float(theta)))
     return merged
 
-def detect_line_intersections(dilated_mask):
-    """Detect line intersections using Hough Transform."""
-    # Apply edge detection
-    edges = cv2.Canny(dilated_mask, 50, 150, apertureSize=3)
+def line_intersection(line1, line2):
+    rho1, th1 = line1; rho2, th2 = line2
+    a1, b1 = np.cos(th1), np.sin(th1)
+    a2, b2 = np.cos(th2), np.sin(th2)
+    det = a1*b2 - a2*b1
+    if abs(det) < 1e-6: return None
+    x = (b2*rho1 - b1*rho2)/det
+    y = (a1*rho2 - a2*rho1)/det
+    return (int(round(x)), int(round(y)))
 
-    # Detect lines using Hough Transform
-    lines = cv2.HoughLines(edges, 1, np.pi / 180, threshold=100)
+def detect_intersections(mask):
+    segments = detect_segments(mask)
+    lines = segments_to_lines_rhotheta(segments)
+    if not lines: return [], []
+    # separa quase-verticais (theta~0) e quase-horizontais (theta~pi/2)
+    vertical   = [l for l in lines if _angle_diff(l[1], 0.0) < _deg(15)]
+    horizontal = [l for l in lines if _angle_diff(l[1], np.pi/2) < _deg(15)]
+    H, W = mask.shape[:2]
+    pts = []
+    for lv in vertical:
+        for lh in horizontal:
+            p = line_intersection(lv, lh)
+            if p is None: continue
+            x, y = p
+            if 0 <= x < W and 0 <= y < H: pts.append((x, y))
+    pts = _dedup_points(pts, radius=25)
+    return pts, (vertical + horizontal)
 
-    if lines is None:
-        return [], []
-
-    # Merge similar lines
-    unique_lines = merge_similar_lines(lines)
-
-    # Find intersections
-    intersection_points = []
-    height, width = dilated_mask.shape[:2]
-
-    for line1, line2 in combinations(unique_lines, 2):
-        point = line_intersection(line1, line2)
-        if point and 0 <= point[0] < width and 0 <= point[1] < height:
-            intersection_points.append(point)
-
-    # Filter duplicate points
-    if intersection_points:
-        filtered = []
-        for i, pt1 in enumerate(intersection_points):
-            cluster = [pt1]
-            for j, pt2 in enumerate(intersection_points[i+1:], i+1):
-                if np.sqrt((pt1[0]-pt2[0])**2 + (pt1[1]-pt2[1])**2) < 30:
-                    cluster.append(pt2)
-            avg_x = int(np.mean([pt[0] for pt in cluster]))
-            avg_y = int(np.mean([pt[1] for pt in cluster]))
-            filtered.append((avg_x, avg_y))
-        intersection_points = filtered
-
-    return intersection_points, unique_lines
-
-# ###########################################################################
-
-# Funções de processamento de imagem e controle (do código anterior)
+# ====================== DETECÇÃO PARA CONTROLE (ROI/CONFIANÇA) =============
 def processar_imagem(imagem):
+    """
+    Retorna (frame_annotado, erro_pixels, conf)
+      - erro_pixels = cx_da_faixa - centro_da_imagem
+      - conf: 1 se um contorno válido foi encontrado, 0 caso contrário
+    """
     h, w = imagem.shape[:2]
+    cx_img = w // 2
+
+    # Cinza + blur
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, thresh = cv2.threshold(blur, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
-    eroded = cv2.erode(thresh, None, iterations=1)
-    dilated = cv2.dilate(eroded, None, iterations=1)
-    contours, _ = cv2.findContours(dilated.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cx = w // 2; erro = 0
-    if len(contours) > 0:
-        c = max(contours, key=cv2.contourArea)
-        M = cv2.moments(c);
-        if M["m00"] > 0:
-            cx = int(M["m10"] / M["m00"])
-            cv2.drawContours(imagem, [c], -1, (0, 255, 0), 2)
-            cv2.circle(imagem, (cx, int(M["m01"] / M["m00"])), 7, (0, 0, 255), -1)
-    erro = cx - (w // 2)
-    return imagem, erro
 
-def calcular_velocidades_auto(erro):
-    correcao = Kp * erro
-    v_esq = np.clip(VELOCIDADE_BASE + correcao, 100, VELOCIDADE_MAX)
-    v_dir = np.clip(VELOCIDADE_BASE - correcao, 100, VELOCIDADE_MAX)
-    return int(v_esq), int(v_dir)
+    # Thresholds (duas polaridades)
+    if USE_ADAPTIVE:
+        th_white = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                         cv2.THRESH_BINARY, 31, -5)
+        th_black = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                         cv2.THRESH_BINARY_INV, 31, -5)
+    else:
+        _, th_white = cv2.threshold(blur, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
+        _, th_black = cv2.threshold(blur, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY_INV)
+
+    def find_valid_contour(th):
+        y0 = int(h * ROI_BOTTOM_FRAC)
+        roi = th[y0:h, :]
+
+        eroded = cv2.erode(roi, None, iterations=1)
+        dilated = cv2.dilate(eroded, None, iterations=1)
+
+        contours, _ = cv2.findContours(dilated.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours: return None, None, None, 0
+
+        roi_area = w * (h - y0)
+        best = None; best_len = -1.0
+
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < roi_area * MIN_AREA_FRAC:  # muito pequeno
+                continue
+            if area > roi_area * MAX_AREA_FRAC:  # muito grande (piso)
+                continue
+
+            rect = cv2.minAreaRect(c)
+            (rw, rh) = rect[1]
+            if rw < 1 or rh < 1: 
+                continue
+            aspect = max(rw, rh) / max(1.0, min(rw, rh))
+            if aspect < ASPECT_MIN: 
+                continue
+
+            length = max(rw, rh)
+            if length > best_len:
+                best_len = length; best = c
+
+        if best is None: 
+            return None, None, None, 0
+
+        M = cv2.moments(best)
+        if M["m00"] <= 1e-6: 
+            return None, None, None, 0
+        cx = int(M["m10"]/M["m00"]); cy = int(M["m01"]/M["m00"])
+        cx_full, cy_full = cx, cy + y0
+        return best, cx_full, cy_full, 1
+
+    # Seleção por polaridade
+    if LINE_POLARITY == 'white':
+        c, cx_full, cy_full, conf = find_valid_contour(th_white)
+    elif LINE_POLARITY == 'black':
+        c, cx_full, cy_full, conf = find_valid_contour(th_black)
+    else:
+        c, cx_full, cy_full, conf = find_valid_contour(th_white)
+        if conf == 0:
+            c, cx_full, cy_full, conf = find_valid_contour(th_black)
+
+    erro = 0
+    if conf == 1:
+        y0 = int(h * ROI_BOTTOM_FRAC)
+        c_shifted = c + np.array([[[0, y0]]])
+        cv2.drawContours(imagem, [c_shifted], -1, (0, 255, 0), 2)
+        cv2.circle(imagem, (cx_full, cy_full), 7, (0, 0, 255), -1)
+        cv2.line(imagem, (cx_img, h-1), (cx_full, cy_full), (255, 0, 0), 1)
+        erro = cx_full - cx_img
+
+    # Deadband
+    if abs(erro) <= DEAD_BAND:
+        erro = 0
+
+    return imagem, erro, conf
+
+# ============================ CONTROLE (P) ==================================
+def calcular_velocidades_auto(erro, base_speed):
+    """Lei P com base variável e saturação simétrica (permite ré)."""
+    correcao = Kp * float(erro)
+    v_esq = base_speed + correcao
+    v_dir = base_speed - correcao
+    v_esq = int(np.clip(v_esq, 15, VELOCIDADE_MAX))
+    v_dir = int(np.clip(v_dir, 15, VELOCIDADE_MAX))
+    return v_esq, v_dir
 
 def enviar_comando_motor_serial(arduino, v_esq, v_dir):
+    # Envia velocidades com sinal; negativos significam ré
     comando = f"C {v_dir} {v_esq}\n"
     arduino.write(comando.encode('utf-8'))
-    # tentar ler um feedback curto (OK/OB) sem bloquear
+
+def ler_obstaculo_serial(arduino):
+    """Retorna True se detectarmos 'OB' no feedback da serial ou distância < limiar via 'S'."""
+    # tentar capturar resposta curta imediatamente
     try:
         if arduino.in_waiting:
-            return arduino.readline().decode('utf-8', errors='ignore').strip()
+            line = arduino.readline().decode('utf-8', errors='ignore').strip()
+            if 'OB' in line:
+                return True
     except Exception:
         pass
-    return ""
-
+    # fallback: perguntar distância ao firmware (se suportado)
+    try:
+        arduino.write(b'S\n')
+        dist_line = arduino.readline().decode('utf-8', errors='ignore').strip()
+        if dist_line.isdigit():
+            d = int(dist_line)
+            if d > 0 and d < ULTRA_THRESHOLD_CM:
+                return True
+    except Exception:
+        pass
+    return False
 
 def rotina_obstaculo(arduino):
     # 1) parar
     arduino.write(b"C 0 0\n"); time.sleep(0.05)
-    # 2) voltar por REVERSE_TIME_S
+    # 2) ré
     arduino.write(b"C -160 -160\n"); time.sleep(REVERSE_TIME_S)
-    # 3) girar ~360 graus
+    # 3) giro ~360°
     arduino.write(b"C 170 -170\n"); time.sleep(SPIN_TIME_S)
     # 4) parar e rearmar proteção
     arduino.write(b"C 0 0\n"); time.sleep(0.1)
-    arduino.write(b"I1\n"); time.sleep(0.05)
-
-def main():
-    # --- INICIALIZAÇÕES ---
-    context = zmq.Context()
-    # Socket PUB para vídeo
-    pub_socket = context.socket(zmq.PUB); pub_socket.bind('tcp://*:5555')
-    # Socket REQ para comandos
-    req_socket = context.socket(zmq.REQ); req_socket.connect(f"tcp://{SERVER_IP}:5005")
-    # Câmera
-    camera = PiCamera(); camera.resolution = (IMG_WIDTH, IMG_HEIGHT); camera.framerate = 24
-    rawCapture = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT)); time.sleep(0.1)
-    # Arduino
-    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
-    # conectar com feedback=1 (para receber OK/OB) e commode=0
-    arduino.write(b'A10\n')
-    print(f"Arduino respondeu: {arduino.readline().decode('utf-8').strip()}")
-    # habilitar tarefa de proteção por obstáculo no Arduino (IR/ultra, se ativo no firmware)
-    arduino.write(b'I1\n')
-
-    # --- LÓGICA DE ESTADO ---
-    current_mode = MODO_AUTO # Começa no modo automático
-    state = 'FOLLOW'        # FOLLOW | LOST | OBSTACLE
-    lost_frames = 0
-    found_streak = 0
-    last_err = 0
-    v_esq, v_dir = 0, 0
-
-    print("Robo iniciado. Pressione 'm' no controle para trocar de modo.")
-    
     try:
-        for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
+        arduino.write(b'I1\n')
+    except Exception:
+        pass
+
+# ================================= MAIN =====================================
+def main():
+    # --- ZMQ ---
+    context = zmq.Context()
+    pub_socket = context.socket(zmq.PUB)
+    pub_socket.bind('tcp://*:5555')                     # publica vídeo
+
+    req_socket = context.socket(zmq.REQ)                # consulta teclas
+    req_socket.connect(f"tcp://{SERVER_IP}:5005")
+    poller = zmq.Poller(); poller.register(req_socket, zmq.POLLIN)
+    awaiting_reply = False; last_key = ""; prev_key = ""; last_req_ts = 0.0
+    KEY_REQ_PERIOD = 0.05
+
+    # --- Câmera ---
+    camera = PiCamera()
+    camera.resolution = (IMG_WIDTH, IMG_HEIGHT)
+    camera.framerate = 24
+    raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
+    time.sleep(0.1)
+
+    # --- Arduino ---
+    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
+    try:
+        arduino.write(b'A10\n')
+        print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
+        # habilita proteção de obstáculo no firmware (para emitir 'OB')
+        arduino.write(b'I1\n')
+    except Exception:
+        pass
+
+    # Estado do seguidor (sem derivativo)
+    last_err = 0.0
+    lost_frames = 0
+    state = 'FOLLOW'  # FOLLOW | LOST | OBSTACLE
+
+    current_mode = MODO_AUTO
+    v_esq, v_dir = 0, 0
+    print("Robo iniciado. Pressione 'm' para trocar de modo.")
+
+    try:
+        for frame in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             image = frame.array
 
-            # 1. VERIFICAR COMANDOS DA REDE
-            req_socket.send_pyobj({"from": MY_ID, "cmd": "key_request"})
-            reply = req_socket.recv_pyobj()
-            key = reply.get("key", "")
-            
-            if key == 'm':
+            # ---------- Teclas (não bloqueante) ----------
+            now = time.time()
+            if not awaiting_reply and (now - last_req_ts) >= KEY_REQ_PERIOD:
+                try:
+                    req_socket.send_pyobj({"from": MY_ID, "cmd": "key_request"})
+                    awaiting_reply = True; last_req_ts = now
+                except Exception:
+                    pass
+            if awaiting_reply:
+                socks = dict(poller.poll(0))
+                if req_socket in socks and socks[req_socket] == zmq.POLLIN:
+                    try:
+                        reply = req_socket.recv_pyobj(zmq.DONTWAIT)
+                        last_key = reply.get("key", "")
+                        awaiting_reply = False
+                    except zmq.Again:
+                        pass
+
+            key = last_key
+            toggled = (key == 'm' and prev_key != 'm'); prev_key = key
+            if toggled:
                 current_mode = MODO_MANUAL if current_mode == MODO_AUTO else MODO_AUTO
-                print(f"Modo alterado para: {current_mode}")
-                v_esq, v_dir = 0, 0 # Para o robô ao trocar de modo
-            
-            # 2. EXECUTAR LOGICA DO MODO ATUAL
+                print(f"Modo: {current_mode}")
+                v_esq, v_dir = 0, 0
+
+            conf = 0  # default p/ HUD caso esteja no modo MANUAL
+
+            # ----------------- CONTROLE -----------------
             if current_mode == MODO_AUTO:
-                image, erro = processar_imagem(image)
-                # atualiza estado FOLLOW/LOST baseado em detecção (erro vem sempre; usamos heurística pela estabilidade do comando)
-                # aqui simplificado: se erro pequeno/estável assumimos FOLLOW; caso contrário, contamos perda
-                if abs(erro) < (IMG_WIDTH * 0.45):
-                    found_streak += 1; lost_frames = 0
-                    if found_streak >= FOUND_MIN_FRAMES:
-                        state = 'FOLLOW'
+                image, erro, conf = processar_imagem(image)
+
+                if conf == 1:
+                    # Detecção válida: FOLLOW
+                    state = 'FOLLOW'
+                    lost_frames = 0
+                    last_err = erro
+
+                    # Agendamento de velocidade: reduz base com |erro|
+                    speed_scale = max(0.35, 1.0 - abs(erro) / float(E_MAX_PIX))
+                    base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
+                    v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
                 else:
-                    found_streak = 0; lost_frames += 1
+                    # Sem detecção: acumula perda até declarar LOST
+                    lost_frames += 1
                     if lost_frames >= LOST_MAX_FRAMES:
                         state = 'LOST'
-                last_err = erro
 
-                if state == 'FOLLOW':
-                    v_esq, v_dir = calcular_velocidades_auto(erro)
-                elif state == 'LOST':
-                    # gira no lugar alternando sentido pelo sinal do último erro
-                    turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
-                    v_esq, v_dir = turn, -turn
-            elif current_mode == MODO_MANUAL:
-                if key == 'w': v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
+                    if state == 'LOST':
+                        # Busca ativa: gira para o lado do último erro conhecido
+                        turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
+                        v_esq, v_dir = int(turn), int(-turn)
+                    else:
+                        # Janela de tolerância antes de declarar LOST: anda devagar e reto
+                        base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
+                        v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
+            else:
+                if key == 'w':   v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
                 elif key == 's': v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
                 elif key == 'a': v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
                 elif key == 'd': v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
-                elif key != '': v_esq, v_dir = 0, 0
+                elif key != '':  v_esq, v_dir = 0, 0
 
-            # 3. ENVIAR COMANDOS PARA O ARDUINO
-            fb = enviar_comando_motor_serial(arduino, v_esq, v_dir)
+            enviar_comando_motor_serial(arduino, v_esq, v_dir)
 
-            # ------- DETECCAO DE OBSTACULO (OB/Ultrassom) -------
-            obst = False
-            if 'OB' in fb:
-                obst = True
-            else:
-                try:
-                    if arduino.in_waiting:
-                        line = arduino.readline().decode('utf-8', errors='ignore').strip()
-                        if 'OB' in line:
-                            obst = True
-                except Exception:
-                    pass
-            if not obst:
-                try:
-                    arduino.write(b'S\n')
-                    dist_line = arduino.readline().decode('utf-8', errors='ignore').strip()
-                    if dist_line.isdigit():
-                        d = int(dist_line)
-                        if d > 0 and d < 25:
-                            obst = True
-                except Exception:
-                    pass
-
-            if obst:
+            # ---------------- OBSTACULO ----------------
+            if ler_obstaculo_serial(arduino):
                 state = 'OBSTACLE'
-
-            if state == 'OBSTACLE':
                 rotina_obstaculo(arduino)
-                # ao terminar a manobra, voltamos ao FOLLOW e zeramos contadores
                 state = 'FOLLOW'
                 lost_frames = 0
-                found_streak = 0
                 v_esq, v_dir = 0, 0
 
-            # 4. PREPARAR E ENVIAR VIDEO (inalterado)
-            # Processar imagem para detecção de interseções
+            # ---------------- VISUALIZAÇÃO ----------------
             display_frame = image.copy()
+            mask = build_binary_mask(display_frame)
+            intersections, detected_lines = detect_intersections(mask)
 
-            # Detect intersections and add visual elements
-            # Process mask for intersection detection
-            blurred = cv2.GaussianBlur(image, (7, 7), 0)
-            _, binary = cv2.threshold(blurred, 180, 255, cv2.THRESH_BINARY)
-            hsv = cv2.cvtColor(binary, cv2.COLOR_BGR2HSV)
+            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+            display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
 
-            lower_white = np.array([0, 0, 200])
-            upper_white = np.array([180, 30, 255])
-            mask = cv2.inRange(hsv, lower_white, upper_white)
+            # desenha linhas (verde)
+            for rho, theta in detected_lines:
+                a, b = np.cos(theta), np.sin(theta)
+                x0, y0 = a * rho, b * rho
+                x1 = int(x0 + 1000 * (-b));  y1 = int(y0 + 1000 * (a))
+                x2 = int(x0 - 1000 * (-b));  y2 = int(y0 - 1000 * (a))
+                cv2.line(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            kernel = np.ones((8, 8), np.uint8)
-            eroded = cv2.erode(mask, kernel, iterations=2)
-            dilated = cv2.dilate(eroded, kernel, iterations=2)
+            # interseções (vermelho)
+            for idx, (x, y) in enumerate(intersections, 1):
+                cv2.circle(display_frame, (x, y), 8, (0, 0, 255), -1)
+                cv2.circle(display_frame, (x, y), 12, (255, 255, 255), 2)
+                cv2.putText(display_frame, f"{idx}", (x + 15, y - 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            # Detect intersections
-            intersections, detected_lines = detect_line_intersections(dilated)
+            cv2.putText(display_frame, f"Modo: {current_mode}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
+            cv2.putText(display_frame, f"State: {state}", (10, 85),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
+            cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 105),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            cv2.putText(display_frame, f"Intersections: {len(intersections)}", (10, 125),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            cv2.putText(display_frame, f"Conf: {conf}  LostFrames: {lost_frames}", (10, 145),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
 
-            # Draw processed mask overlay (semi-transparent)
-            mask_colored = cv2.cvtColor(dilated, cv2.COLOR_GRAY2BGR)
-            mask_colored = cv2.applyColorMap(mask_colored, cv2.COLORMAP_HOT)
-            display_frame = cv2.addWeighted(display_frame, 0.7, mask_colored, 0.3, 0)
-
-            # Draw detected lines (green like corner_detection.py)
-            if detected_lines:
-                for rho, theta in detected_lines:
-                    a = np.cos(theta)
-                    b = np.sin(theta)
-                    x0 = a * rho
-                    y0 = b * rho
-                    x1 = int(x0 + 1000 * (-b))
-                    y1 = int(y0 + 1000 * (a))
-                    x2 = int(x0 - 1000 * (-b))
-                    y2 = int(y0 - 1000 * (a))
-                    cv2.line(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-            # Draw intersection points (red with numbers)
-            if intersections:
-                for idx, (x, y) in enumerate(intersections, 1):
-                    cv2.circle(display_frame, (x, y), 8, (0, 0, 255), -1)
-                    cv2.circle(display_frame, (x, y), 12, (255, 255, 255), 2)
-                    cv2.putText(display_frame, f"{idx}", (x+15, y-15),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-            # Add status text
-            cv2.putText(display_frame, f"Modo: {current_mode}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
-            cv2.putText(display_frame, f"Lines: {len(detected_lines)} Intersections: {len(intersections)}",
-                       (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
-
-            # Comprimir e enviar
             _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             pub_socket.send(base64.b64encode(buffer))
-            
-            rawCapture.truncate(0)
+            raw.truncate(0)
 
     finally:
         print("Encerrando...")
-        enviar_comando_motor_serial(arduino, 0, 0) # Para os motores!
-        arduino.write(b'a\n')
-        arduino.close()
-        pub_socket.close(); req_socket.close(); context.term()
+        try:
+            enviar_comando_motor_serial(arduino, 0, 0)
+            arduino.write(b'a\n'); arduino.close()
+        except Exception:
+            pass
+        try:
+            pub_socket.close(); req_socket.close()
+        except Exception:
+            pass
+        try:
+            context.term()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()
