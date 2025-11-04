@@ -1,7 +1,6 @@
-# robot_new.py — seguidor de linha com parada e decisão em interseção
-# Lógica de estado: FOLLOW, LOST, APPROACHING, STOPPING, STOPPED,
+# robot_new.py — seguidor de linha com rota automática pré-definida
+# Lógica de estado: FOLLOW, LOST, APPROACHING, STOPPING, STOPPED (automático),
 #                  TURN_LEFT, TURN_RIGHT, GO_STRAIGHT
-# (Versão com correção de "overshoot" da câmera)
 
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -63,6 +62,14 @@ TURN_SPEED = 130             # Velocidade para girar (90 graus)
 TURN_DURATION_S = 0.7        # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
 STRAIGHT_SPEED = 100         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar (AJUSTAR)
+
+# =========================================================================
+# === ROTA AUTOMÁTICA ===
+# Defina a sequência de ações que o robô deve tomar nas interseções
+# Comandos válidos: "RIGHT", "LEFT", "STRAIGHT"
+# =========================================================================
+ACTION_SEQUENCE = ["RIGHT", "LEFT", "RIGHT"]
+# =========================================================================
 
 
 # --- SERIAL ---
@@ -298,6 +305,7 @@ def main():
     state = 'FOLLOW'
     action_start_time = 0.0 # Generaliza o temporizador para todas as ações
     last_known_y = -1.0     # Última posição Y válida da interseção
+    intersection_counter = 0  # Índice para ACTION_SEQUENCE
 
     current_mode = MODO_AUTO
     v_esq, v_dir = 0, 0
@@ -333,6 +341,7 @@ def main():
                 v_esq, v_dir = 0, 0
                 state = 'FOLLOW'
                 last_known_y = -1.0 # Reseta
+                intersection_counter = 0 # Reseta a rota
 
             conf = 0  # default p/ HUD caso esteja no modo MANUAL
             intersections = []
@@ -415,23 +424,38 @@ def main():
                 
                 elif state == 'STOPPING':
                     if (time.time() - action_start_time) > CRAWL_DURATION_S:
-                        print("Parada completa. Aguardando decisão (i=reto, j=esq, l=dir).")
-                        state = 'STOPPED'
+                        print("Parada completa. Decidindo acao automatica...")
+                        state = 'STOPPED' # Transição imediata para decisão
                 
                 elif state == 'STOPPED':
-                    # Espera por uma tecla de decisão
-                    if key == 'j':
-                        print("Virando à esquerda...")
+                    # Pega a próxima ação da sequência
+                    
+                    # Se a sequência terminou, reinicia do começo (loop)
+                    if intersection_counter >= len(ACTION_SEQUENCE):
+                        print("Fim da sequencia, reiniciando rota.")
+                        intersection_counter = 0 
+                    
+                    command = ACTION_SEQUENCE[intersection_counter]
+                    print(f"Intersecao #{intersection_counter}: Executando '{command}'")
+
+                    # Muda para o estado de ação apropriado
+                    if command == "LEFT":
                         state = 'TURN_LEFT'
                         action_start_time = time.time()
-                    elif key == 'l':
-                        print("Virando à direita...")
+                    elif command == "RIGHT":
                         state = 'TURN_RIGHT'
                         action_start_time = time.time()
-                    elif key == 'i':
-                        print("Seguindo reto...")
+                    elif command == "STRAIGHT":
                         state = 'GO_STRAIGHT'
                         action_start_time = time.time()
+                    else:
+                        # Caso o comando na lista esteja errado, apenas segue em frente
+                        print(f"Comando '{command}' desconhecido. Seguindo em frente.")
+                        state = 'GO_STRAIGHT' 
+                        action_start_time = time.time()
+                    
+                    # Incrementa o contador para a *próxima* interseção
+                    intersection_counter += 1
                 
                 elif state == 'TURN_LEFT':
                     if (time.time() - action_start_time) > TURN_DURATION_S:
@@ -474,131 +498,4 @@ def main():
                     if (Y_TARGET_STOP - Y_START_SLOWING) > 0: # Evita divisão por zero
                         progress = (last_known_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
                     
-                    speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
-                    
-                    current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
-                    base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
-                    # Segue a linha (erro) mesmo durante a frenagem
-                    v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
-
-                elif state == 'STOPPING':
-                    # "Anda mais um pouco" - crawl reto
-                    v_esq, v_dir = CRAWL_SPEED, CRAWL_SPEED
-                
-                elif state == 'STOPPED':
-                    v_esq, v_dir = 0, 0
-                
-                elif state == 'TURN_LEFT':
-                    v_esq, v_dir = -TURN_SPEED, TURN_SPEED
-
-                elif state == 'TURN_RIGHT':
-                    v_esq, v_dir = TURN_SPEED, -TURN_SPEED
-
-                elif state == 'GO_STRAIGHT':
-                    v_esq, v_dir = STRAIGHT_SPEED, STRAIGHT_SPEED
-                
-                elif state == 'LOST':
-                    # Lógica original de busca
-                    turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
-                    v_esq, v_dir = int(turn), int(-turn)
-
-            else:
-                # MODO MANUAL (w,a,s,d reinicia o estado)
-                if key == 'w':   
-                    v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
-                    state = 'FOLLOW'
-                    last_known_y = -1.0 # Reseta
-                elif key == 's': 
-                    v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
-                    state = 'FOLLOW'
-                    last_known_y = -1.0 # Reseta
-                elif key == 'a': 
-                    v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
-                    state = 'FOLLOW'
-                    last_known_y = -1.0 # Reseta
-                elif key == 'd': 
-                    v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
-                    state = 'FOLLOW'
-                    last_known_y = -1.0 # Reseta
-                elif key not in ['i', 'j', 'l']: # Ignora teclas de decisão no modo manual
-                    v_esq, v_dir = 0, 0
-
-            enviar_comando_motor_serial(arduino, v_esq, v_dir)
-
-            # ---------------- VISUALIZAÇÃO ----------------
-            display_frame = image.copy()
-            
-            if current_mode != MODO_AUTO:
-                mask = build_binary_mask(display_frame)
-                intersections, detected_lines_for_hud = detect_intersections(mask)
-
-            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
-            display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
-            
-            # desenha linhas (verde)
-            for rho, theta in detected_lines_for_hud:
-                a, b = np.cos(theta), np.sin(theta)
-                x0, y0 = a * rho, b * rho
-                x1 = int(x0 + 1000 * (-b));  y1 = int(y0 + 1000 * (a))
-                x2 = int(x0 - 1000 * (-b));  y2 = int(y0 - 1000 * (a))
-                cv2.line(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-
-            # interseções (vermelho)
-            for idx, (x, y) in enumerate(intersections, 1):
-                cv2.circle(display_frame, (x, y), 8, (0, 0, 255), -1)
-                cv2.circle(display_frame, (x, y), 12, (255, 255, 255), 2)
-                cv2.putText(display_frame, f"{idx}", (x + 15, y - 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-            # Atualiza o HUD com o novo estado
-            cv2.putText(display_frame, f"Modo: {current_mode}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
-            
-            # Texto do estado (com cor)
-            state_color = (0, 255, 0) # Verde para FOLLOW
-            if state == 'LOST': state_color = (0, 0, 255) # Vermelho
-            elif state == 'APPROACHING': state_color = (0, 255, 255) # Amarelo
-            elif state == 'STOPPING': state_color = (255, 0, 255) # Magenta
-            elif state == 'STOPPED': state_color = (255, 0, 0) # Azul
-            elif state in ['TURN_LEFT', 'TURN_RIGHT', 'GO_STRAIGHT']: state_color = (255, 165, 0) # Laranja
-            
-            cv2.putText(display_frame, f"State: {state}", (10, 85),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 2)
-
-            # Adiciona prompt de decisão
-            if state == 'STOPPED':
-                 cv2.putText(display_frame, "DECIDA: i(reto), j(esq), l(dir)", (10, 170),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-            cv2.putText(display_frame, f"Lines: {len(detected_lines_for_hud)}", (10, 105),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
-            cv2.putText(display_frame, f"Intersections: {len(intersections)}", (10, 125),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
-            cv2.putText(display_frame, f"Conf: {conf}  LostFrames: {lost_frames}", (10, 145),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
-
-            _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            pub_socket.send(base64.b64encode(buffer))
-            raw.truncate(0)
-
-    finally:
-        print("Encerrando...")
-        try:
-            enviar_comando_motor_serial(arduino, 0, 0)
-            arduino.write(b'a\n'); arduino.close()
-        except Exception:
-            pass
-        try:
-            pub_socket.close(); req_socket.close()
-        except Exception:
-            pass
-        try:
-            context.term()
-        except Exception:
-            pass
-
-if __name__ == "__main__":
-    main()
+                    speed_factor = 1.0 -
