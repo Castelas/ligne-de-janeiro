@@ -59,7 +59,7 @@ CRAWL_DURATION_S = 0.5       # Duração (segundos) do "anda mais um pouco"
 
 # NOVOS PARÂMETROS PARA AÇÕES NA INTERSEÇÃO
 TURN_SPEED = 130             # Velocidade para girar (90 graus)
-TURN_DURATION_S = 0.7        # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
+TURN_DURATION_S = 1.5        # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
 STRAIGHT_SPEED = 100         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar (AJUSTAR)
 
