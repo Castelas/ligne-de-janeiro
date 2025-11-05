@@ -639,51 +639,14 @@ def parse_args():
 stream_socket = None
 stream_context = None
 
-def start_camera_stream(camera):
-    """Inicia o streaming de câmera em background"""
-    import threading
+def init_streaming():
+    """Inicializa o socket ZMQ para streaming"""
     global stream_socket, stream_context
-
-    # Setup ZMQ para visualização
-    stream_context = zmq.Context()
-    stream_socket = stream_context.socket(zmq.PUB)
-    stream_socket.bind('tcp://*:5555')
-
-    raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
-
-    def stream_loop():
-        try:
-            for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
-                img = f.array
-                mask = build_binary_mask(img)
-
-                # Visualização básica
-                display_frame = img.copy()
-                mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
-                display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
-
-                # HUD básico
-                cv2.putText(display_frame, "Aguardando movimento...", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-
-                _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                stream_socket.send(base64.b64encode(buffer))
-
-                raw.truncate(0)
-        except:
-            pass
-        finally:
-            if stream_socket:
-                stream_socket.close()
-            if stream_context:
-                stream_context.term()
-
-    # Inicia streaming em background
-    stream_thread = threading.Thread(target=stream_loop, daemon=True)
-    stream_thread.start()
-
-    print("📹 Streaming de câmera iniciado em tcp://*:5555")
-    return stream_context, stream_socket
+    if stream_socket is None:
+        stream_context = zmq.Context()
+        stream_socket = stream_context.socket(zmq.PUB)
+        stream_socket.bind('tcp://*:5555')
+        print("📹 Streaming ZMQ inicializado em tcp://*:5555")
 
 def send_frame_to_stream(display_frame):
     """Envia um frame específico para o stream ZMQ"""
@@ -691,6 +654,27 @@ def send_frame_to_stream(display_frame):
     if stream_socket:
         _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         stream_socket.send(base64.b64encode(buffer))
+
+def send_basic_frame(camera, message="Processando..."):
+    """Envia um frame básico da câmera com uma mensagem"""
+    try:
+        raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
+        camera.capture(raw, format="bgr", use_video_port=True)
+        img = raw.array
+        mask = build_binary_mask(img)
+
+        # Visualização básica
+        display_frame = img.copy()
+        mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+        display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
+
+        # HUD básico
+        cv2.putText(display_frame, message, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+
+        send_frame_to_stream(display_frame)
+    except Exception as e:
+        print(f"Erro ao enviar frame básico: {e}")
 
 def main():
     args=parse_args()
@@ -705,7 +689,10 @@ def main():
     # Inicializar câmera e streaming
     camera = PiCamera(); camera.resolution=(IMG_WIDTH, IMG_HEIGHT); camera.framerate=24
     time.sleep(0.6)  # warm-up
-    stream_context, stream_socket = start_camera_stream(camera)
+    init_streaming()  # Inicializar ZMQ
+
+    # Enviar primeiro frame básico
+    send_basic_frame(camera, "Sistema inicializado - aguardando comando")
 
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
@@ -719,6 +706,9 @@ def main():
         print(f"📦 DESTINO: Nó ({tx},{ty})")
         print()
 
+        # Frame de início
+        send_basic_frame(camera, f"Quadrado ({sx},{sy}) -> No ({tx},{ty})")
+
         start_node, cur_dir, ok = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
         if not ok: print("❌ Falha na saída."); return
 
@@ -726,12 +716,16 @@ def main():
         print()
 
         print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
+        send_basic_frame(camera, "Calculando caminho A*...")
+
         path=a_star(start_node, target, GRID_NODES)
         if path is None:
             print("❌ Nenhum caminho encontrado pelo A*.")
+            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
             return
 
         print()
+        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
         _,cur_dir,ok=follow_path(arduino, start_node, cur_dir, path, camera)
         if not ok: print("❌ Falha na ida."); return
         print("✅ Entrega realizada com sucesso!")
