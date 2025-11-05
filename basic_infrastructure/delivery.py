@@ -6,7 +6,7 @@
 #  • Mantém todas as rotinas de visão/controle idênticas ao robot2.py.
 from picamera.array import PiRGBArray
 from picamera import PiCamera
-import cv2, time, numpy as np, serial, argparse
+import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
@@ -56,7 +56,7 @@ ALIGN_STABLE    = 4       # frames estáveis
 ALIGN_TIMEOUT   = 2.0     # tempo máx. alinhando (s)
 
 # Intersecção (mais tolerante)
-INT_BAND_Y0_FRAC        = 0.58
+INT_BAND_Y0_FRAC        = 0.45
 INT_BAND_Y1_FRAC        = 0.98
 INT_STABLE_FR           = 2
 INT_MATCH_RADIUS        = 24
@@ -336,6 +336,11 @@ def best_intersection_in_band(pts, h, band_y0, band_y1):
     return cand
 
 def go_to_next_intersection(arduino, camera):
+    # Setup ZMQ para visualização (igual ao robot_new.py)
+    context = zmq.Context()
+    pub_socket = context.socket(zmq.PUB)
+    pub_socket.bind('tcp://*:5555')
+
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     last_err=0.0; lost_frames=0; state='FOLLOW'
     last_int_t=0.0; prev=None; stable=0; t0=time.time()
@@ -363,10 +368,46 @@ def go_to_next_intersection(arduino, camera):
 
             drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)  # manter razoável
 
-            pts,_ = detect_intersections(mask)
+            pts, detected_lines = detect_intersections(mask)
             h=mask.shape[0]
             y0=int(h*INT_BAND_Y0_FRAC); y1=int(h*INT_BAND_Y1_FRAC)
             cand = best_intersection_in_band(pts, h, y0, y1)
+
+            # Visualização das interseções (igual ao robot_new.py)
+            display_frame = img.copy()
+            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+            display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
+
+            # desenha linhas (verde)
+            for rho, theta in detected_lines:
+                a, b = np.cos(theta), np.sin(theta)
+                x0, y0 = a * rho, b * rho
+                x1 = int(x0 + 1000 * (-b));  y1 = int(y0 + 1000 * (a))
+                x2 = int(x0 - 1000 * (-b));  y2 = int(y0 - 1000 * (a))
+                cv2.line(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            # interseções (vermelho)
+            for idx, (x, y) in enumerate(pts, 1):
+                cv2.circle(display_frame, (x, y), 8, (0, 0, 255), -1)
+                cv2.circle(display_frame, (x, y), 12, (255, 255, 255), 2)
+                cv2.putText(display_frame, f"{idx}", (x + 15, y - 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+            # Destaque a interseção candidata na banda
+            if cand is not None:
+                cv2.circle(display_frame, cand, 15, (255, 0, 255), 3)  # magenta para destacar
+
+            # HUD igual ao robot_new.py
+            cv2.putText(display_frame, f"State: {state}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
+            cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 55),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            cv2.putText(display_frame, f"Intersections: {len(pts)}", (10, 75),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            cv2.putText(display_frame, f"Stable: {stable}/{INT_STABLE_FR}", (10, 95),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
+            cv2.putText(display_frame, f"Band: {INT_BAND_Y0_FRAC:.2f}-{INT_BAND_Y1_FRAC:.2f}", (10, 115),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
 
             if cand is not None:
                 if prev is not None and (np.hypot(cand[0]-prev[0], cand[1]-prev[1]) <= INT_MATCH_RADIUS):
@@ -381,11 +422,17 @@ def go_to_next_intersection(arduino, camera):
                 drive_cap(arduino, 80, 80, cap=ALIGN_CAP); time.sleep(0.10); drive_cap(arduino,0,0)
                 last_int_t=now; return True
 
+            # Enviar frame processado via ZMQ (igual ao robot_new.py)
+            _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            pub_socket.send(base64.b64encode(buffer))
+
             raw.truncate(0); raw.seek(0)
             if (now-t0)>10.0:
                 drive_cap(arduino,0,0); return False
     finally:
         raw.truncate(0)
+        pub_socket.close()
+        context.term()
 
 # ====================== Planejamento e Execução ======================
 def manhattan(a,b): return abs(a[0]-b[0])+abs(a[1]-b[1])
@@ -429,12 +476,17 @@ def orientation_of_step(a,b):
     return 3
 def relative_turn(cur_dir,want_dir): return {0:'F',1:'R',2:'U',3:'L'}[(want_dir-cur_dir)%4]
 
+def dir_name(d):
+    return {0:'Norte', 1:'Leste', 2:'Sul', 3:'Oeste'}[d]
+
 def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
     left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
     dl = manhattan(left_corner, target); dr = manhattan(right_corner, target)
     side_hint = 'L' if dl<=dr else 'R'
     chosen = left_corner if side_hint=='L' else right_corner
-    print(f"→ Saindo para {chosen} (pivô 2-fases; hint='{side_hint}')")
+    print(f"🚶 Saindo do quadrado ({sx},{sy}) em direção ao canto {chosen}")
+    print(f"   Direção atual: {dir_name(cur_dir)}, virada sugerida: {'Esquerda' if side_hint=='L' else 'Direita'}")
+    print(f"   Distância Manhattan: {chosen}→{target} = {manhattan(chosen, target)}")
 
     # Reta cega
     if not straight_until_seen_then_lost(arduino, camera):
@@ -463,14 +515,34 @@ def exec_turn(arduino, rel):
 def follow_path(arduino, start_node, start_dir, path, camera):
     cur_node=start_node; cur_dir=start_dir
     drive_cap(arduino,0,0); time.sleep(0.1)
+
+    # Mostra o caminho completo
+    print("🗺️  CAMINHO CALCULADO PELO A*:")
+    path_str = " → ".join([f"({x},{y})" for x,y in path])
+    print(f"   {path_str}")
+    print(f"   Total: {len(path)-1} movimentos")
+    print()
+
     for i in range(1,len(path)):
         nxt=path[i]
         want=orientation_of_step(cur_node, nxt)
         rel=relative_turn(cur_dir,want)
+
+        # Mostra cada virada específica
+        turn_names = {'F':'Frente', 'L':'Esquerda (90°)', 'R':'Direita (90°)', 'U':'Meia-volta (180°)'}
+        print(f"🔄 Intersecção ({cur_node[0]},{cur_node[1]}): {dir_name(cur_dir)} → {turn_names[rel]} → {dir_name(want)}")
+        print(f"   Indo para ({nxt[0]},{nxt[1]})")
+
         exec_turn(arduino, rel); cur_dir=want
+        print(f"   ✅ Giro executado")
         if not go_to_next_intersection(arduino, camera):
+            print(f"   ❌ Falha ao alcançar ({nxt[0]},{nxt[1]})")
             return cur_node,cur_dir,False
+        print(f"   ✅ Chegou em ({nxt[0]},{nxt[1]})")
+        print()
         cur_node=nxt
+
+    print(f"🎯 Chegou ao destino final!")
     return cur_node,cur_dir,True
 
 # =================================== MAIN ===================================
@@ -503,17 +575,34 @@ def main():
     except Exception: pass
 
     try:
+        print(f"🏠 INÍCIO: Quadrado ({sx},{sy}), Orientação {dir_name(cur_dir)}")
+        print(f"📦 DESTINO: Nó ({tx},{ty})")
+        print()
+
         start_node, cur_dir, ok = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
-        if not ok: print("Falha na saída."); return
+        if not ok: print("❌ Falha na saída."); return
+
+        print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
         path=a_star(start_node, target, GRID_NODES)
-        if path is None: print("Sem caminho."); return
+        if path is None:
+            print("❌ Nenhum caminho encontrado pelo A*.")
+            return
+
+        print()
         _,cur_dir,ok=follow_path(arduino, start_node, cur_dir, path, camera)
-        if not ok: print("Falha na ida."); return
-        print("✅ Entrega ok.")
+        if not ok: print("❌ Falha na ida."); return
+        print("✅ Entrega realizada com sucesso!")
+        print()
+
         if not args.no_return:
+            print("🔄 CALCULANDO CAMINHO DE RETORNO...")
             back=a_star(target, start_node, GRID_NODES)
+            if back is None:
+                print("❌ Nenhum caminho de retorno encontrado.")
+                return
+            print()
             _,_,ok=follow_path(arduino, target, cur_dir, back, camera)
-            print("✅ Retornou." if ok else "✗ Falhou no retorno.")
+            print("✅ Retornou ao ponto inicial!" if ok else "❌ Falhou no retorno.")
     finally:
         try:
             enviar_comando_motor_serial(arduino, 0, 0)
