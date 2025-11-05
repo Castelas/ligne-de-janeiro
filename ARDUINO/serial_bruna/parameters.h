@@ -4,8 +4,8 @@
       // signal de l'infra rouge
 #define IR_pin A0
 // signal pour le capteur Ultrasons
-#define TRIG_PIN 10     
-#define ECHO_PIN 11
+#define TRIG_PIN 11     
+#define ECHO_PIN 10
 
 #define ServofrontPin 9
 
