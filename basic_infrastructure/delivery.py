@@ -42,7 +42,7 @@ BAUDRATE = 115200
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
 START_SPEED  = 100        # reta cega
-TURN_SPEED   = 150        # giros 90/180 (crus)
+TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 150     # limite superior do pivô
@@ -264,7 +264,11 @@ def drive_cap(arduino, v_esq, v_dir, cap=255):
 def straight_until_seen_then_lost(arduino, camera):
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     saw=False; lost=0; t0=time.time()
-    drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.1)
+
+    # Começa com velocidade maior para ir mais longe
+    initial_speed = int(START_SPEED * 1.3)  # 30% mais rápido
+    drive_cap(arduino, initial_speed, initial_speed); time.sleep(0.1)
+
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
@@ -276,7 +280,10 @@ def straight_until_seen_then_lost(arduino, camera):
             row_frac = band.sum(axis=1)/(255.0*w)
             present = row_frac.max() >= ROW_PEAK_FRAC_THR
 
-            drive_cap(arduino, START_SPEED, START_SPEED)
+            # Mantém velocidade inicial até ver a linha
+            current_speed = initial_speed if not saw else START_SPEED
+            drive_cap(arduino, current_speed, current_speed)
+
             if not saw:
                 if present: saw=True; lost=0
             else:
@@ -284,6 +291,8 @@ def straight_until_seen_then_lost(arduino, camera):
                 else:
                     lost+=1
                     if lost>=LOSE_FRAMES_START:
+                        # Após perder a linha, anda um pouco mais para frente
+                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.3)
                         drive_cap(arduino,0,0); return True
             if (time.time()-t0)>START_TIMEOUT_S:
                 drive_cap(arduino,0,0); return False
@@ -531,7 +540,10 @@ def go_to_next_intersection(arduino, camera):
 
             now=time.time()
             if phase == 'DONE':
-                drive_cap(arduino, 80, 80, cap=ALIGN_CAP); time.sleep(0.10); drive_cap(arduino,0,0)
+                # Após passar pela interseção, acelera um pouco para frente para centralizar
+                print(f"   🚀 Acelerando para centralizar após interseção...")
+                drive_cap(arduino, 120, 120, cap=ALIGN_CAP); time.sleep(0.25)
+                drive_cap(arduino, 0, 0)
                 return True
 
             raw.truncate(0); raw.seek(0)
@@ -668,11 +680,11 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
 def exec_turn(arduino, rel):
     if rel=='F': return
     if rel=='L':
-        drive_cap(arduino, -TURN_SPEED, TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.0); drive_cap(arduino,0,0); time.sleep(0.3)
+        drive_cap(arduino, -TURN_SPEED, TURN_SPEED, cap=ALIGN_CAP); time.sleep(0.6); drive_cap(arduino,0,0); time.sleep(0.2)
     elif rel=='R':
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.0); drive_cap(arduino,0,0); time.sleep(0.3)
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(0.6); drive_cap(arduino,0,0); time.sleep(0.2)
     else:
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.8); drive_cap(arduino,0,0); time.sleep(0.3)
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.2); drive_cap(arduino,0,0); time.sleep(0.2)
 
 def follow_path(arduino, start_node, start_dir, path, camera):
     """
