@@ -31,11 +31,14 @@ def process_msg(msg):
             print(f"Novo no '{msg_from}' se registrando.")
             nodes.append(msg_from)
         reply = default_reply
-    elif msg_from == "control" and msg_type == "key":
+    el    if msg_from == "control" and msg_type == "key":
         key = msg.get("key", '')
+        print(f"🎮 Recebido comando do control: {key}")
         reply = default_reply
     elif msg_from != "control" and msg_type == "key_request":
         reply = {"key": key}
+        if key:
+            print(f"🤖 Enviando comando para robot: {key}")
         key = '' # Limpa a tecla após ser lida pelo robô
     else:
         reply = {"error": "mensagem invalida"}

@@ -70,7 +70,7 @@ def main():
                             req_socket.send_pyobj(msg)
                             req_socket.recv_pyobj() # Espera confirmação
                             current_key = char_key
-                            print(f"Enviando comando: {char_key}")
+                            print(f"🎮 Enviando comando: {char_key}")
                         except zmq.Again:
                             print(f"⚠️  Timeout no comando {char_key}")
 

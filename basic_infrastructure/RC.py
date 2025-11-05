@@ -61,8 +61,11 @@ def get_remote_key(req_socket):
         req_socket.send_pyobj(msg)
         reply = req_socket.recv_pyobj()
         key = reply.get("key", "")
+        if key:
+            print(f"📥 Recebido comando: {key}")
         return key if key else None
     except zmq.Again:
+        # Timeout normal, não imprime
         return None
     except Exception as e:
         print(f"⚠️  Erro ao obter tecla remota: {e}")
