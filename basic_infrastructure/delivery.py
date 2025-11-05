@@ -373,6 +373,14 @@ def go_to_next_intersection(arduino, camera):
             y0=int(h*INT_BAND_Y0_FRAC); y1=int(h*INT_BAND_Y1_FRAC)
             cand = best_intersection_in_band(pts, h, y0, y1)
 
+            # Debug: mostra interseções detectadas
+            if pts:
+                print(f"   🔍 Detectadas {len(pts)} interseções: {[f'({x},{y})' for x,y in pts]}")
+                if cand:
+                    print(f"   🎯 Candidata na banda: ({cand[0]},{cand[1]})")
+                else:
+                    print(f"   ⚠️  Nenhuma interseção na banda y∈[{y0},{y1}]")
+
             # Visualização das interseções (igual ao robot_new.py)
             display_frame = img.copy()
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
@@ -531,6 +539,18 @@ def follow_path(arduino, start_node, start_dir, path, camera):
     if len(path) == 1 and path[0] == start_node:
         print(f"🎯 Já estamos no destino ({start_node[0]},{start_node[1]})!")
         return cur_node,cur_dir,True
+
+    # SEMPRE vai para a primeira interseção do caminho para garantir posicionamento
+    first_target = path[0]
+    print(f"🎯 Confirmando posição na interseção ({first_target[0]},{first_target[1]})")
+
+    # Tenta ir para a primeira interseção (deve ser rápida se já estiver lá)
+    if not go_to_next_intersection(arduino, camera):
+        print(f"   ❌ Falha ao confirmar posição em ({first_target[0]},{first_target[1]})")
+        return cur_node,cur_dir,False
+    print(f"   ✅ Posição confirmada em ({first_target[0]},{first_target[1]})")
+    cur_node = first_target
+    print()
 
     # Executa cada passo do caminho (começando do segundo nó)
     for i in range(1,len(path)):
