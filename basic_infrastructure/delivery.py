@@ -307,9 +307,14 @@ def straight_until_seen_then_lost(arduino, camera):
 def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     turn_sign = -1 if side_hint=='L' else +1
-    # Para orientação Oeste, inverter direção de giro devido a hardware
-    if orient == 3:
+    # Ajuste de direção de giro por orientação devido a hardware/montagem
+    # Oeste precisa inverter devido à montagem dos motores
+    if orient == 3:  # Oeste
         turn_sign = -turn_sign
+    # Adicionar outras orientações se necessário:
+    # elif orient == 0: turn_sign = -turn_sign  # Norte
+    # elif orient == 1: turn_sign = -turn_sign  # Leste
+    # elif orient == 2: turn_sign = -turn_sign  # Sul
     seen_cnt=0; t0=time.time()
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
