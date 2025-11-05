@@ -34,7 +34,7 @@ char feedback ;
 // si non nul indique que les commandes doivent renvoyer un acquittement
 
 // gestion du multitache.
-définition de la période de chaque tache
+//définition de la période de chaque tache
 int del1 = 100;  // délai tache 1 de test d'arrivée
 int del2 = 500;
 // délai regulation moteur
