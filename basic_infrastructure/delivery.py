@@ -515,12 +515,14 @@ def go_to_next_intersection(arduino, camera):
 
             # Encontrar a interseção alvo (a mais próxima, com maior 'y')
             intersections, detected_lines = detect_intersections(mask)
+            print(f"   🔍 Detectadas {len(intersections)} interseções: {intersections}")
             target_intersection = None
             target_y = -1
             if intersections:
                 intersections.sort(key=lambda p: p[1], reverse=True)  # Ordena por Y decrescente
                 target_intersection = intersections[0]
                 target_y = target_intersection[1]
+                print(f"   🎯 Target: {target_intersection} (Y={target_y})")
 
             h, w = img.shape[:2]
             Y_START_SLOWING = h * Y_START_SLOWING_FRAC
@@ -529,6 +531,8 @@ def go_to_next_intersection(arduino, camera):
             # Debug: mostrar valores importantes
             if target_y != -1:
                 print(f"   🎯 Interseção Y={target_y:.0f}, Y_TARGET_STOP={Y_TARGET_STOP:.0f}, State={state}")
+            else:
+                print(f"   ❌ Nenhuma interseção detectada, State={state}")
 
             # --- Máquina de Estados de Controle (do robot_pedro.py) ---
 
