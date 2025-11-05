@@ -22,7 +22,7 @@ PAR_TOL_DEG         = 8
 
 VELOCIDADE_BASE = 100
 VELOCIDADE_CURVA = 100
-Kp = 0.75
+Kp = 0.6              # Reduzido de 0.75 para correções menores
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
@@ -49,7 +49,7 @@ PIVOT_CAP       = 150     # limite superior do pivô
 PIVOT_MIN       = 120     # mínimo para vencer atrito
 PIVOT_TIMEOUT   = 7.0
 SEEN_FRAMES     = 2       # frames consecutivos "vendo" a linha para sair do giro
-ALIGN_BASE      = 60      # velocidade base na fase de alinhamento (P)  [reduzida para mais precisão]
+ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
 ALIGN_TOL_PIX   = 8       # centralização final
 ALIGN_STABLE    = 3       # frames estáveis [reduzido para ser menos rigoroso]
@@ -219,8 +219,8 @@ def calcular_velocidades_auto(erro, base_speed):
     correcao = Kp * float(erro)
     v_esq = base_speed + correcao
     v_dir = base_speed - correcao
-    v_esq = int(np.clip(v_esq, 15, VELOCIDADE_MAX))
-    v_dir = int(np.clip(v_dir, 15, VELOCIDADE_MAX))
+    v_esq = int(np.clip(v_esq, 80, VELOCIDADE_MAX))  # Mínimo aumentado para 80
+    v_dir = int(np.clip(v_dir, 80, VELOCIDADE_MAX))  # Mínimo aumentado para 80
     return v_esq, v_dir
 
 def enviar_comando_motor_serial(arduino, v_esq, v_dir):
