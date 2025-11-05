@@ -585,11 +585,11 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
 def exec_turn(arduino, rel):
     if rel=='F': return
     if rel=='L':
-        drive_cap(arduino, -TURN_SPEED, TURN_SPEED, cap=ALIGN_CAP); time.sleep(0.75); drive_cap(arduino,0,0); time.sleep(0.10)
+        drive_cap(arduino, -TURN_SPEED, TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.0); drive_cap(arduino,0,0); time.sleep(0.3)
     elif rel=='R':
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(0.75); drive_cap(arduino,0,0); time.sleep(0.10)
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.0); drive_cap(arduino,0,0); time.sleep(0.3)
     else:
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.50); drive_cap(arduino,0,0); time.sleep(0.10)
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.8); drive_cap(arduino,0,0); time.sleep(0.3)
 
 def follow_path(arduino, start_node, start_dir, path, camera):
     """
@@ -635,7 +635,7 @@ def follow_path(arduino, start_node, start_dir, path, camera):
         print(f"   Indo para ({nxt[0]},{nxt[1]})")
 
         # ⚠️  IMPORTANTE: Para completamente antes de virar
-        drive_cap(arduino, 0, 0); time.sleep(0.2)
+        drive_cap(arduino, 0, 0); time.sleep(0.3)
         print(f"   🛑 Parado para executar giro")
 
         exec_turn(arduino, rel); cur_dir=want
