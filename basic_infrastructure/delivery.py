@@ -65,7 +65,7 @@ Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela in
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.4       # Duração (segundos) do "anda mais um pouco" - aumentado
 TURN_SPEED = 180             # Velocidade para girar (90 graus) - aumentado para giros mais precisos
-TURN_DURATION_S = 1.0        # Duração (segundos) para o giro - aumentado para giros completos
+TURN_DURATION_S = 0.5        # Duração (segundos) para o giro - ajustado para 0.5s
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
@@ -748,14 +748,14 @@ def a_star(start,goal,grid=(5,5)):
     return None
 
 def orientation_of_step(a,b):
-    # Coordenadas (coluna, linha) - coluna cresce para direita, linha cresce para baixo
-    # Norte: linha diminui (b[1] < a[1])
-    # Sul: linha aumenta (b[1] > a[1])
-    # Leste: coluna aumenta (b[0] > a[0])
-    # Oeste: coluna diminui (b[0] < a[0])
-    if b[1] < a[1]: return 0  # Norte
-    if b[1] > a[1]: return 2  # Sul
-    if b[0] > a[0]: return 1  # Leste
+    # Coordenadas (linha, coluna) - linha cresce para baixo, coluna cresce para direita
+    # Norte: linha diminui (b[0] < a[0])
+    # Sul: linha aumenta (b[0] > a[0])
+    # Leste: coluna aumenta (b[1] > a[1])
+    # Oeste: coluna diminui (b[1] < a[1])
+    if b[0] < a[0]: return 0  # Norte
+    if b[0] > a[0]: return 2  # Sul
+    if b[1] > a[1]: return 1  # Leste
     return 3  # Oeste
 def relative_turn(cur_dir,want_dir): return {0:'F',1:'R',2:'U',3:'L'}[(want_dir-cur_dir)%4]
 
