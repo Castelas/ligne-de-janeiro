@@ -686,10 +686,13 @@ def front_left_right_corners(sx,sy,orient):
     # Retorna (left_corner, right_corner) relativos à direção de movimento
     # left_corner: interseção alcançável virando para esquerda
     # right_corner: interseção alcançável virando para direita
-    if orient==0:  return ( (sx,sy-1),   (sx,sy+1) )     # Norte: left=Oeste, right=Leste
-    if orient==1:  return ( (sx-1,sy),   (sx+1,sy) )     # Leste: left=Norte, right=Sul
-    if orient==2:  return ( (sx,sy-1),   (sx,sy+1) )     # Sul: left=Oeste, right=Leste
-    if orient==3:  return ( (sx+1,sy),   (sx-1,sy) )     # Oeste: left=Sul, right=Norte
+    # Interseções acessíveis baseadas no quadrado (sx,sy)
+    # Para quadrado X,Y: interseções são (X,Y), (X,Y+1), (X+1,Y), (X+1,Y+1)
+    # Mas acessíveis dependem da orientação
+    if orient==0:  return ( (sx,sy),     (sx,sy+1) )     # Norte: (X,Y), (X,Y+1)
+    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y), (X+1,Y+1)
+    if orient==2:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Sul: (X+1,Y), (X+1,Y+1)
+    if orient==3:  return ( (sx,sy),     (sx+1,sy) )     # Oeste: (X,Y), (X+1,Y)
     raise ValueError
 
 def get_accessible_intersections(sx, sy, orient):
@@ -1125,11 +1128,16 @@ def main():
         print("🤖 MODO AUTOMÁTICO")
         print()
 
-        # Calcular A* do quadrado inicial para determinar a primeira interseção
+        # Determinar interseção inicial baseada na orientação
+        accessible = get_accessible_intersections(sx, sy, cur_dir)
+        start_intersection = min(accessible, key=lambda inter: manhattan(inter, (tx, ty)))
+        print(f"🎯 Interseção inicial escolhida: {start_intersection} (baseado na orientação e destino)")
+
+        # Calcular A* da interseção inicial para o destino
         print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
         send_basic_frame(camera, "Calculando caminho A*...")
 
-        path = a_star((sx, sy), (tx, ty), GRID_NODES)
+        path = a_star(start_intersection, (tx, ty), GRID_NODES)
         if path is None:
             print("❌ Nenhum caminho encontrado pelo A*.")
             send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
