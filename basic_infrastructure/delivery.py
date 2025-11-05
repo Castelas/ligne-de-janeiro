@@ -51,7 +51,7 @@ TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 180     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
-PIVOT_TIMEOUT   = 2.0   # Muito reduzido para minimizar giro excessivo
+PIVOT_TIMEOUT   = 2.1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
@@ -61,11 +61,11 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 0.95    # Aumentado para 95% - passa mais pela interseção
+Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
-TURN_SPEED = 150             # Velocidade para girar (90 graus) - reduzido para controlar
-TURN_DURATION_S = 0.3        # Duração (segundos) para o giro - conforme solicitado
+CRAWL_DURATION_S = 0.4       # Duração (segundos) do "anda mais um pouco" - aumentado
+TURN_SPEED = 150             # Velocidade para girar (90 graus) - conforme solicitado
+TURN_DURATION_S = 0.9        # Duração (segundos) para o giro - aumentado conforme solicitado
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
@@ -306,14 +306,22 @@ def straight_until_seen_then_lost(arduino, camera):
 
 def spin_in_place_until_seen(arduino, camera, side_hint='L'):
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
-    turn_sign = -1 if side_hint=='L' else +1
+    if side_hint == 'F':
+        # Não virar, apenas esperar ver a linha
+        turn_sign = 0
+    else:
+        turn_sign = -1 if side_hint=='L' else +1
     seen_cnt=0; t0=time.time()
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
             img_display, err, conf = processar_imagem(img)
-            v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
-            drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
+            if side_hint == 'F':
+                # Parado, apenas esperando
+                drive_cap(arduino, 0, 0)
+            else:
+                v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
+                drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
 
             # Enviar frame para o stream durante o pivot
             mask = build_binary_mask(img_display)
@@ -652,8 +660,8 @@ def manhattan(a,b): return abs(a[0]-b[0])+abs(a[1]-b[1])
 def front_left_right_corners(sx,sy,orient):
     if orient==0:  return ( (sx,sy),     (sx+1,sy) )
     if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )
-    if orient==2:  return ( (sx+1,sy+1), (sx,sy+1) )
-    if orient==3:  return ( (sx,sy+1),   (sx,sy) )
+    if orient==2:  return ( (sx+1,sy),   (sx+1,sy+1) )
+    if orient==3:  return ( (sx,sy),     (sx,sy+1) )
     raise ValueError
 
 def a_star(start,goal,grid=(5,5)):
@@ -682,10 +690,15 @@ def a_star(start,goal,grid=(5,5)):
     return None
 
 def orientation_of_step(a,b):
-    if b[1]<a[1]: return 0
-    if b[1]>a[1]: return 2
-    if b[0]>a[0]: return 1
-    return 3
+    # Coordenadas (coluna, linha) - coluna cresce para direita, linha cresce para baixo
+    # Norte: linha diminui (b[1] < a[1])
+    # Sul: linha aumenta (b[1] > a[1])
+    # Leste: coluna aumenta (b[0] > a[0])
+    # Oeste: coluna diminui (b[0] < a[0])
+    if b[1] < a[1]: return 0  # Norte
+    if b[1] > a[1]: return 2  # Sul
+    if b[0] > a[0]: return 1  # Leste
+    return 3  # Oeste
 def relative_turn(cur_dir,want_dir): return {0:'F',1:'R',2:'U',3:'L'}[(want_dir-cur_dir)%4]
 
 def dir_name(d):
@@ -703,10 +716,30 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, path=N
     left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
     dl = manhattan(left_corner, target)
     dr = manhattan(right_corner, target)
-    side_hint = 'L' if dl <= dr else 'R'
-    chosen = left_corner if side_hint=='L' else right_corner
 
-    print(f"   Escolhendo canto {chosen} (virada: {'esquerda' if side_hint=='L' else 'direita'})")
+    # Verificar se algum corner está exatamente à frente
+    front_corner = None
+    if cur_dir == 0:  # Norte
+        front_corner = (sx, sy)
+    elif cur_dir == 1:  # Leste
+        front_corner = (sx+1, sy)
+    elif cur_dir == 2:  # Sul
+        front_corner = (sx+1, sy)
+    elif cur_dir == 3:  # Oeste
+        front_corner = (sx, sy)
+
+    if front_corner == left_corner and dl <= dr:
+        side_hint = 'F'  # Frente
+        chosen = left_corner
+    elif front_corner == right_corner and dr < dl:
+        side_hint = 'F'  # Frente
+        chosen = right_corner
+    else:
+        side_hint = 'L' if dl <= dr else 'R'
+        chosen = left_corner if side_hint=='L' else right_corner
+
+    turn_desc = {'F':'reto (à frente)', 'L':'esquerda', 'R':'direita'}[side_hint]
+    print(f"   Escolhendo canto {chosen} (virada: {turn_desc})")
     print(f"   Distância Manhattan: {dl} vs {dr}")
 
     # Reta cega
@@ -758,11 +791,17 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, path=N
         print("✗ Falha ao alcançar a intersecção.")
         return None, None, False
 
-    # O pivot já deixou o robô na direção correta, não precisa de giro adicional
-    print(f"✅ Pivot concluído - pronto para seguir")
+    # O pivot virou o robô para a direção do corner escolhido
+    # Atualizar cur_dir baseado no side_hint
+    if side_hint == 'L':
+        cur_dir = (cur_dir - 1) % 4  # Virou para esquerda
+    elif side_hint == 'R':
+        cur_dir = (cur_dir + 1) % 4  # Virou para direita
+
+    print(f"✅ Pivot concluído - agora virado para {dir_name(cur_dir)}")
 
     if return_arrival_dir:
-        # Após o pivot, o robô chega na interseção vindo da direção de orientação
+        # O robô chega na interseção vindo da direção atual
         arrival_dir = cur_dir
         print(f"📍 Chegando na interseção {chosen} vindo do {dir_name(arrival_dir)}")
         return chosen, cur_dir, True, arrival_dir
@@ -810,6 +849,9 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         want=orientation_of_step(cur_node, nxt)
         rel=relative_turn(cur_dir,want)
 
+        # Debug: mostra cálculos
+        print(f"   DEBUG: cur_node={cur_node}, nxt={nxt}, cur_dir={cur_dir}({dir_name(cur_dir)}), want={want}({dir_name(want)}), rel={rel}")
+
         # Mostra cada virada específica
         turn_names = {'F':'reto', 'L':'esquerda', 'R':'direita', 'U':'meia-volta'}
         print(f"🔄 Intersecção ({cur_node[0]},{cur_node[1]}): virar {turn_names[rel]} para ({nxt[0]},{nxt[1]})")
@@ -826,18 +868,20 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
 
         elif rel == 'L':
             # TURN_LEFT: Virar 90° esquerda
-            print("   ↪️  Virando esquerda...")
+            print(f"   ↪️  Virando esquerda: drive_cap({arduino}, {-TURN_SPEED}, {TURN_SPEED}) por {TURN_DURATION_S}s")
             drive_cap(arduino, -TURN_SPEED, TURN_SPEED)
             time.sleep(TURN_DURATION_S)
+            print(f"   🛑 Parando giro esquerdo...")
             drive_cap(arduino, 0, 0); time.sleep(0.3)
             print("   ✅ Virou esquerda")
             cur_dir = want
 
         elif rel == 'R':
             # TURN_RIGHT: Virar 90° direita
-            print("   ↩️  Virando direita...")
+            print(f"   ↩️  Virando direita: drive_cap({arduino}, {TURN_SPEED}, {-TURN_SPEED}) por {TURN_DURATION_S}s")
             drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
             time.sleep(TURN_DURATION_S)
+            print(f"   🛑 Parando giro direito...")
             drive_cap(arduino, 0, 0); time.sleep(0.3)
             print("   ✅ Virou direita")
             cur_dir = want
@@ -846,7 +890,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             # U-turn: Meia-volta (180°)
             print("   🔄 Fazendo meia-volta...")
             drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
-            time.sleep(2.5)  # U-turn leva mais tempo
+            time.sleep(2.1)  # U-turn ajustado para 2.1s conforme solicitado
             drive_cap(arduino, 0, 0); time.sleep(0.4)
             print("   ✅ Meia-volta completa")
             cur_dir = want
