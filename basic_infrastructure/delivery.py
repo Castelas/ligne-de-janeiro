@@ -1028,10 +1028,10 @@ def main():
     auto_state = "INIT"  # Estados: INIT, LEAVING, NAVIGATING, RETURNING, DONE
 
     try:
-    print(f"🏠 INÍCIO: Quadrado ({sx},{sy})")
-    print(f"📦 DESTINO: Nó ({tx},{ty})")
-    print("🤖 MODO AUTOMÁTICO")
-    print()
+        print(f"🏠 INÍCIO: Quadrado ({sx},{sy})")
+        print(f"📦 DESTINO: Nó ({tx},{ty})")
+        print("🤖 MODO AUTOMÁTICO")
+        print()
 
         # Variáveis para o modo automático
         start_node = None
