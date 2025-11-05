@@ -89,6 +89,38 @@ def distance_to_line(point, line):
     x, y = point
     return abs(x * np.cos(theta) + y * np.sin(theta) - rho)
 
+def calculate_intersection_confidence(intersection, vertical_lines, horizontal_lines, img_shape):
+    """
+    Calcula confiança de uma interseção baseada em múltiplos fatores
+    """
+    x, y = intersection
+    h, w = img_shape
+    confidence = 1.0
+
+    # Fator 1: Distância das bordas (interseções no centro são mais confiáveis)
+    center_dist = min(x, w-x, y, h-y) / max(w, h)
+    confidence *= (0.5 + 0.5 * center_dist)  # 0.5 a 1.0
+
+    # Fator 2: Proximidade de linhas verticais e horizontais reais
+    min_v_dist = min((abs(x - lv[0]) for lv_rho, lv_theta in vertical_lines if abs(lv_theta) < 0.2), default=w)
+    min_h_dist = min((abs(y - lh[0]) for lh_rho, lh_theta in horizontal_lines if abs(lh_theta - np.pi/2) < 0.2), default=h)
+
+    # Normalizar distâncias (menor distância = maior confiança)
+    v_factor = max(0, 1 - min_v_dist / 30)  # 1 se muito próximo, 0 se longe
+    h_factor = max(0, 1 - min_h_dist / 30)
+
+    confidence *= (0.4 + 0.6 * (v_factor + h_factor) / 2)  # 0.4 a 1.0
+
+    # Fator 3: Evitar interseções muito próximas das bordas laterais
+    if x < 30 or x > w - 30:
+        confidence *= 0.3  # Penalizar fortemente interseções nas bordas
+
+    # Fator 4: Preferir interseções na metade inferior da imagem
+    if y < h * 0.5:
+        confidence *= 0.6  # Penalizar interseções no topo
+
+    return confidence
+
 def _dedup_points(points, radius=25):
     if not points: return []
     used = [False]*len(points); out = []
@@ -481,14 +513,36 @@ def go_to_next_intersection(arduino, camera):
             else:
                 print(f"   ✅ Linha OK: erro={erro:.1f}, conf={conf}")
 
-            # Encontrar a interseção alvo (a mais próxima, com maior 'y')
+            # Encontrar a interseção alvo (a mais confiável)
             intersections, detected_lines = detect_intersections(mask)
+
+            # Calcular confiança para cada interseção
+            vertical_lines = [l for l in detected_lines if abs(l[1]) < 0.2]  # Quase vertical
+            horizontal_lines = [l for l in detected_lines if abs(l[1] - np.pi/2) < 0.2]  # Quase horizontal
+
+            h, w = img.shape[:2]
+            intersection_confidences = []
+            for inter in intersections:
+                conf = calculate_intersection_confidence(inter, vertical_lines, horizontal_lines, (h, w))
+                intersection_confidences.append((inter, conf))
+
+            # Selecionar apenas a interseção mais confiável (acima de threshold)
             target_intersection = None
             target_y = -1
-            if intersections:
-                intersections.sort(key=lambda p: p[1], reverse=True)  # Ordena por Y decrescente
-                target_intersection = intersections[0]
-                target_y = target_intersection[1]
+            min_confidence = 0.6  # Threshold mínimo de confiança
+
+            if intersection_confidences:
+                # Ordenar por confiança decrescente
+                intersection_confidences.sort(key=lambda x: x[1], reverse=True)
+
+                # Pegar a mais confiável se passar no threshold
+                best_inter, best_conf = intersection_confidences[0]
+                if best_conf >= min_confidence:
+                    target_intersection = best_inter
+                    target_y = best_inter[1]
+                    print(f"   🎯 Melhor interseção: {best_inter} (confiança: {best_conf:.2f})")
+                else:
+                    print(f"   ⚠️  Interseção rejeitada: confiança {best_conf:.2f} < {min_confidence}")
 
             h, w = img.shape[:2]
             Y_START_SLOWING = h * Y_START_SLOWING_FRAC
