@@ -16,7 +16,7 @@
 import zmq
 import sys
 
-server_ip = "192.168.137.1"
+server_ip = "192.168.137.7"
 verbose_mode = False
 nodes = list()
 global key # last key hit ?

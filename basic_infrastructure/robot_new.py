@@ -11,7 +11,7 @@ import serial
 
 # ============================= PARÂMETROS GERAIS =============================
 # --- REDE ---
-SERVER_IP = "192.168.137.78"     # <--- COLOQUE o IP do servidor (control.py)
+SERVER_IP = "192.168.137.7"     # <--- COLOQUE o IP do servidor (control.py)
 MY_ID     = "bot001"             # identificador do robô na rede
 
 # --- VISÃO ---
