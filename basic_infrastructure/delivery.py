@@ -1055,22 +1055,22 @@ def main():
         print("🤖 MODO AUTOMÁTICO")
         print()
 
-    # Calcular A* do quadrado inicial para determinar a primeira interseção
-    print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
-    send_basic_frame(camera, "Calculando caminho A*...")
+        # Calcular A* do quadrado inicial para determinar a primeira interseção
+        print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
+        send_basic_frame(camera, "Calculando caminho A*...")
 
-    path = a_star((sx, sy), (tx, ty), GRID_NODES)
-    if path is None:
-        print("❌ Nenhum caminho encontrado pelo A*.")
-        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
-        return
+        path = a_star((sx, sy), (tx, ty), GRID_NODES)
+        if path is None:
+            print("❌ Nenhum caminho encontrado pelo A*.")
+            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+            return
 
-    print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
-    send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
+        print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
+        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
 
-    # A primeira interseção do caminho é path[1]
-    target_intersection = path[1] if len(path) > 1 else target
-    print(f"🎯 Primeira interseção alvo: {target_intersection}")
+        # A primeira interseção do caminho é path[1]
+        target_intersection = path[1] if len(path) > 1 else target
+        print(f"🎯 Primeira interseção alvo: {target_intersection}")
 
         # Variáveis para o modo automático
         start_node = None
@@ -1172,6 +1172,17 @@ def main():
                     break
 
             time.sleep(0.1)  # Pequena pausa para não sobrecarregar
+
+    except Exception as e:
+        print(f"❌ Erro durante execução: {e}")
+        try:
+            enviar_comando_motor_serial(arduino, 0, 0)
+            arduino.write(b'a\n'); arduino.close()
+        except Exception: pass
+        camera.close()
+        if remote_socket:
+            remote_socket.close()
+        return
 
     finally:
         try:
