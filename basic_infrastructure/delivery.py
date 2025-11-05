@@ -685,11 +685,11 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
 def exec_turn(arduino, rel):
     if rel=='F': return
     if rel=='L':
-        drive_cap(arduino, -TURN_SPEED, TURN_SPEED, cap=ALIGN_CAP); time.sleep(0.6); drive_cap(arduino,0,0); time.sleep(0.2)
+        drive_cap(arduino, -TURN_SPEED, TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.0); drive_cap(arduino,0,0); time.sleep(0.3)
     elif rel=='R':
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(0.6); drive_cap(arduino,0,0); time.sleep(0.2)
-    else:
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.2); drive_cap(arduino,0,0); time.sleep(0.2)
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.0); drive_cap(arduino,0,0); time.sleep(0.3)
+    else:  # U-turn (180°)
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(2.5); drive_cap(arduino,0,0); time.sleep(0.4)
 
 def follow_path(arduino, start_node, start_dir, path, camera):
     """
@@ -728,6 +728,13 @@ def follow_path(arduino, start_node, start_dir, path, camera):
         nxt=path[i]
         want=orientation_of_step(cur_node, nxt)
         rel=relative_turn(cur_dir,want)
+
+        # Debug detalhado das direções
+        print(f"🔄 DEBUG: De {cur_node} para {nxt}")
+        print(f"   Direção calculada: {dir_name(want)} (código: {want})")
+        print(f"   Direção atual: {dir_name(cur_dir)} (código: {cur_dir})")
+        print(f"   Diferença: {(want - cur_dir) % 4}")
+        print(f"   Giro relativo: {rel}")
 
         # Mostra cada virada específica
         turn_names = {'F':'Frente', 'L':'Esquerda (90°)', 'R':'Direita (90°)', 'U':'Meia-volta (180°)'}
