@@ -1063,18 +1063,18 @@ def main():
         print("🤖 MODO AUTOMÁTICO")
         print()
 
-        # Calcular caminho A* ANTES de qualquer movimento
-        print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
-        send_basic_frame(camera, "Calculando caminho A*...")
+    # Por enquanto, calcular A* do quadrado inicial (será recalculado depois com interseção inicial)
+    print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
+    send_basic_frame(camera, "Calculando caminho A*...")
 
-        path = a_star((sx, sy), (tx, ty), GRID_NODES)
-        if path is None:
-            print("❌ Nenhum caminho encontrado pelo A*.")
-            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
-            return
+    temp_path = a_star((sx, sy), (tx, ty), GRID_NODES)
+    if temp_path is None:
+        print("❌ Nenhum caminho encontrado pelo A*.")
+        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+        return
 
-        print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
-        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
+    print(f"🗺️ CAMINHO TEMPORÁRIO: {' -> '.join([f'({x},{y})' for x,y in path])}")
+    send_basic_frame(camera, f"Caminho temp: {' -> '.join([f'({x},{y})' for x,y in temp_path])}")
 
         # Variáveis para o modo automático
         start_node = None
@@ -1135,7 +1135,15 @@ def main():
                     auto_state = "NAVIGATING"
 
                 elif auto_state == "NAVIGATING":
-                    print(f"🔄 Iniciando navegação do caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
+                    # Recalcular A* da interseção inicial escolhida para o destino
+                    print(f"🔄 Recalculando A* da interseção inicial {start_node} para destino {target}")
+                    path = a_star(start_node, target, GRID_NODES)
+                    if path is None:
+                        print("❌ Nenhum caminho encontrado pelo A* da interseção inicial.")
+                        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+                        return
+
+                    print(f"🗺️ CAMINHO FINAL: {' -> '.join([f'({x},{y})' for x,y in path])}")
                     send_basic_frame(camera, f"Navegando: {' -> '.join([f'({x},{y})' for x,y in path])}")
 
                     _, cur_dir, ok = follow_path(arduino, start_node, cur_dir, path, camera, arrival_dir)
