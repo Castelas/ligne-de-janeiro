@@ -2,10 +2,14 @@
 import zmq
 import serial
 import time
+import cv2
+from picamera import PiCamera
+from picamera.array import PiRGBArray
 
 # --- PARÂMETROS ---
 SERVER_IP = "192.168.137.164"  # IP do computador que roda o server.py
 VELOCIDADE_BASE = 120          # Velocidade base para movimento
+IMG_WIDTH, IMG_HEIGHT = 640, 480
 
 # --- FUNÇÕES ---
 
@@ -35,6 +39,25 @@ def init_control_connection():
     req_socket.connect(f"tcp://{SERVER_IP}:5005")
     req_socket.setsockopt(zmq.RCVTIMEO, 1000)  # Timeout 1s
     return req_socket, context
+
+def init_camera_and_stream():
+    """Inicializa câmera e stream ZMQ"""
+    try:
+        camera = PiCamera()
+        camera.resolution = (IMG_WIDTH, IMG_HEIGHT)
+        camera.framerate = 24
+        time.sleep(1.0)  # Warm-up
+
+        # Inicializar stream ZMQ
+        context = zmq.Context()
+        socket = context.socket(zmq.PUB)
+        socket.bind("tcp://*:5555")
+        print("📹 Stream ZMQ inicializado em tcp://*:5555")
+
+        return camera, socket, context
+    except Exception as e:
+        print(f"Erro ao inicializar câmera/stream: {e}")
+        return None, None, None
 
 def manual_control(arduino, key):
     """Controle manual baseado na tecla pressionada"""
@@ -79,6 +102,11 @@ def main():
         print("❌ Não foi possível conectar ao Arduino. Saindo...")
         return
 
+    camera, stream_socket, stream_context = init_camera_and_stream()
+    if not camera:
+        print("❌ Não foi possível inicializar câmera. Saindo...")
+        return
+
     req_socket, control_context = init_control_connection()
 
     print("🚗 Carrinho RC iniciado!")
@@ -88,7 +116,9 @@ def main():
     current_key = ''  # Última tecla enviada
 
     try:
-        while True:
+        # Loop de captura e transmissão de vídeo
+        raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
+        for frame in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             # Obtém comando remoto
             remote_key = get_remote_key(req_socket)
 
@@ -102,7 +132,14 @@ def main():
                 manual_control(arduino, 'stop')
                 current_key = ''
 
-            time.sleep(0.05)  # Pequena pausa
+            # Transmitir frame
+            img = frame.array
+            _, buffer = cv2.imencode('.jpg', img)
+            stream_socket.send(buffer.tobytes())
+
+            raw.truncate(0)
+
+            time.sleep(0.05)  # Controlar frame rate
 
     except KeyboardInterrupt:
         print("\nSaindo...")
@@ -111,6 +148,12 @@ def main():
         drive_cap(arduino, 0, 0)  # Parar o carrinho
         if arduino:
             arduino.close()
+        if camera:
+            camera.close()
+        if stream_socket:
+            stream_socket.close()
+        if stream_context:
+            stream_context.term()
         req_socket.close()
         control_context.term()
 
