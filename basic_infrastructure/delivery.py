@@ -102,8 +102,8 @@ def calculate_intersection_confidence(intersection, vertical_lines, horizontal_l
     confidence *= (0.5 + 0.5 * center_dist)  # 0.5 a 1.0
 
     # Fator 2: Proximidade de linhas verticais e horizontais reais
-    min_v_dist = min((abs(x - lv[0]) for lv_rho, lv_theta in vertical_lines if abs(lv_theta) < 0.2), default=w)
-    min_h_dist = min((abs(y - lh[0]) for lh_rho, lh_theta in horizontal_lines if abs(lh_theta - np.pi/2) < 0.2), default=h)
+    min_v_dist = min((abs(x - lv_rho) for lv_rho, lv_theta in vertical_lines if abs(lv_theta) < 0.2), default=w)
+    min_h_dist = min((abs(y - lh_rho) for lh_rho, lh_theta in horizontal_lines if abs(lh_theta - np.pi/2) < 0.2), default=h)
 
     # Normalizar distâncias (menor distância = maior confiança)
     v_factor = max(0, 1 - min_v_dist / 30)  # 1 se muito próximo, 0 se longe
