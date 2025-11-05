@@ -365,11 +365,6 @@ def best_intersection_in_band(pts, h, band_y0, band_y1):
     return cand_in_band if cand_in_band is not None else cand_out_band
 
 def go_to_next_intersection(arduino, camera):
-    # Setup ZMQ para visualização (igual ao robot_new.py)
-    context = zmq.Context()
-    pub_socket = context.socket(zmq.PUB)
-    pub_socket.bind('tcp://*:5555')
-
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     last_err=0.0; lost_frames=0; state='FOLLOW'
     last_int_t=0.0; prev=None; stable=0; t0=time.time()
@@ -446,6 +441,9 @@ def go_to_next_intersection(arduino, camera):
             cv2.putText(display_frame, f"Band: {INT_BAND_Y0_FRAC:.2f}-{INT_BAND_Y1_FRAC:.2f}", (10, 115),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
 
+            # Enviar frame processado para streaming
+            send_frame_to_stream(display_frame)
+
             if cand is not None:
                 if prev is not None and (np.hypot(cand[0]-prev[0], cand[1]-prev[1]) <= INT_MATCH_RADIUS):
                     stable += 1
@@ -459,17 +457,11 @@ def go_to_next_intersection(arduino, camera):
                 drive_cap(arduino, 80, 80, cap=ALIGN_CAP); time.sleep(0.10); drive_cap(arduino,0,0)
                 last_int_t=now; return True
 
-            # Enviar frame processado via ZMQ (igual ao robot_new.py)
-            _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            pub_socket.send(base64.b64encode(buffer))
-
             raw.truncate(0); raw.seek(0)
             if (now-t0)>10.0:
                 drive_cap(arduino,0,0); return False
     finally:
         raw.truncate(0)
-        pub_socket.close()
-        context.term()
 
 # ====================== Planejamento e Execução ======================
 def manhattan(a,b): return abs(a[0]-b[0])+abs(a[1]-b[1])
@@ -643,6 +635,63 @@ def parse_args():
     ap.add_argument('--no-return', action='store_true')
     return ap.parse_args()
 
+# Variáveis globais para streaming
+stream_socket = None
+stream_context = None
+
+def start_camera_stream(camera):
+    """Inicia o streaming de câmera em background"""
+    import threading
+    global stream_socket, stream_context
+
+    # Setup ZMQ para visualização
+    stream_context = zmq.Context()
+    stream_socket = stream_context.socket(zmq.PUB)
+    stream_socket.bind('tcp://*:5555')
+
+    raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
+
+    def stream_loop():
+        try:
+            for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
+                img = f.array
+                mask = build_binary_mask(img)
+
+                # Visualização básica
+                display_frame = img.copy()
+                mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+                display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
+
+                # HUD básico
+                cv2.putText(display_frame, "Aguardando movimento...", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+
+                _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                stream_socket.send(base64.b64encode(buffer))
+
+                raw.truncate(0)
+        except:
+            pass
+        finally:
+            if stream_socket:
+                stream_socket.close()
+            if stream_context:
+                stream_context.term()
+
+    # Inicia streaming em background
+    stream_thread = threading.Thread(target=stream_loop, daemon=True)
+    stream_thread.start()
+
+    print("📹 Streaming de câmera iniciado em tcp://*:5555")
+    return stream_context, stream_socket
+
+def send_frame_to_stream(display_frame):
+    """Envia um frame específico para o stream ZMQ"""
+    global stream_socket
+    if stream_socket:
+        _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        stream_socket.send(base64.b64encode(buffer))
+
 def main():
     args=parse_args()
     sx,sy=args.square; tx,ty=args.target
@@ -653,8 +702,10 @@ def main():
     if not (0<=tx<=4 and 0<=ty<=4): raise SystemExit("target 0..4 0..4")
     target=(tx,ty)
 
+    # Inicializar câmera e streaming
     camera = PiCamera(); camera.resolution=(IMG_WIDTH, IMG_HEIGHT); camera.framerate=24
     time.sleep(0.6)  # warm-up
+    stream_context, stream_socket = start_camera_stream(camera)
 
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
