@@ -65,7 +65,7 @@ Y_TARGET_STOP_FRAC = 0.95    # Aumentado para 95% - passa mais pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - reduzido para controlar
-TURN_DURATION_S = 0.5        # Duração (segundos) para o giro - ainda mais reduzido
+TURN_DURATION_S = 0.3        # Duração (segundos) para o giro - conforme solicitado
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
@@ -1051,7 +1051,9 @@ def main():
                     auto_state = "LEAVING"
 
                 elif auto_state == "LEAVING":
+                    print("🚶 Executando leave_square_to_best_corner...")
                     result = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
+                    print(f"✅ leave_square_to_best_corner retornou: {result}")
                     if len(result) == 4:
                         start_node, cur_dir, ok, arrival_dir = result
                     else:
@@ -1064,6 +1066,7 @@ def main():
 
                     print(f"📍 Após saída: Posição {start_node}, Direção {dir_name(cur_dir)}")
                     send_basic_frame(camera, f"Posicao: {start_node}")
+                    print("🔄 Mudando para CALCULATING_PATH")
                     auto_state = "CALCULATING_PATH"
 
                 elif auto_state == "CALCULATING_PATH":
