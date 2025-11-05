@@ -653,7 +653,7 @@ def front_left_right_corners(sx,sy,orient):
     if orient==0:  return ( (sx,sy),     (sx+1,sy) )
     if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )
     if orient==2:  return ( (sx+1,sy),   (sx+1,sy+1) )
-    if orient==3:  return ( (sx,sy+1),   (sx,sy) )
+    if orient==3:  return ( (sx,sy),     (sx,sy+1) )
     raise ValueError
 
 def a_star(start,goal,grid=(5,5)):
