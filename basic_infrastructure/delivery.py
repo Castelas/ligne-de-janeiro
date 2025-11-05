@@ -61,7 +61,7 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 0.95    # Aumentado para 95% - passa mais pela interseção
+Y_TARGET_STOP_FRAC = 0.98    # Aumentado para 98% - passa ainda mais pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - conforme solicitado
@@ -862,7 +862,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             # U-turn: Meia-volta (180°)
             print("   🔄 Fazendo meia-volta...")
             drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
-            time.sleep(2.5)  # U-turn leva mais tempo
+            time.sleep(2.2)  # U-turn 0.3s menos conforme solicitado
             drive_cap(arduino, 0, 0); time.sleep(0.4)
             print("   ✅ Meia-volta completa")
             cur_dir = want
