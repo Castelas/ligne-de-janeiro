@@ -675,22 +675,32 @@ def relative_turn(cur_dir,want_dir): return {0:'F',1:'R',2:'U',3:'L'}[(want_dir-
 def dir_name(d):
     return {0:'Norte', 1:'Leste', 2:'Sul', 3:'Oeste'}[d]
 
-def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return_arrival_dir=True):
+def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, path=None, return_arrival_dir=True):
     """
     Sai do quadrado usando a orientação declarada (assumida correta).
+    path: caminho A* completo para usar interseção específica se disponível
     """
     print(f"🚶 Saindo do quadrado ({sx},{sy})")
     print(f"   Orientação: {'Norte' if cur_dir == 0 else 'Leste' if cur_dir == 1 else 'Sul' if cur_dir == 2 else 'Oeste'}")
     print(f"   Destino: {target}")
 
-    left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
-    dl = manhattan(left_corner, target)
-    dr = manhattan(right_corner, target)
-    side_hint = 'L' if dl <= dr else 'R'
-    chosen = left_corner if side_hint=='L' else right_corner
+    # Se temos um path, usar a primeira interseção dele
+    if path and len(path) > 1:
+        chosen = path[1]  # Primeira interseção do path
+        print(f"   Usando path A*: primeira interseção {chosen}")
+        # Determinar se é left ou right corner baseado na orientação
+        left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
+        side_hint = 'L' if chosen == left_corner else 'R'
+    else:
+        # Fallback para lógica antiga
+        left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
+        dl = manhattan(left_corner, target)
+        dr = manhattan(right_corner, target)
+        side_hint = 'L' if dl <= dr else 'R'
+        chosen = left_corner if side_hint=='L' else right_corner
 
-    print(f"   Escolhendo canto {chosen} (virada: {'esquerda' if side_hint=='L' else 'direita'})")
-    print(f"   Distância Manhattan: {dl} vs {dr}")
+        print(f"   Escolhendo canto {chosen} (virada: {'esquerda' if side_hint=='L' else 'direita'})")
+        print(f"   Distância Manhattan: {dl} vs {dr}")
 
     # Reta cega
     if not straight_until_seen_then_lost(arduino, camera):
@@ -1008,9 +1018,21 @@ def main():
         print("🤖 MODO AUTOMÁTICO")
         print()
 
+        # Calcular caminho A* ANTES de qualquer movimento
+        print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
+        send_basic_frame(camera, "Calculando caminho A*...")
+
+        path = a_star((sx, sy), (tx, ty), GRID_NODES)
+        if path is None:
+            print("❌ Nenhum caminho encontrado pelo A*.")
+            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+            return
+
+        print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
+        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
+
         # Variáveis para o modo automático
         start_node = None
-        path = None
         back_path = None
         arrival_dir = None
 
@@ -1052,7 +1074,7 @@ def main():
 
                 elif auto_state == "LEAVING":
                     print("🚶 Executando leave_square_to_best_corner...")
-                    result = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
+                    result = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, path)
                     print(f"✅ leave_square_to_best_corner retornou: {result}")
                     if len(result) == 4:
                         start_node, cur_dir, ok, arrival_dir = result
@@ -1066,21 +1088,7 @@ def main():
 
                     print(f"📍 Após saída: Posição {start_node}, Direção {dir_name(cur_dir)}")
                     send_basic_frame(camera, f"Posicao: {start_node}")
-                    print("🔄 Mudando para CALCULATING_PATH")
-                    auto_state = "CALCULATING_PATH"
-
-                elif auto_state == "CALCULATING_PATH":
-                    print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
-                    send_basic_frame(camera, "Calculando caminho A*...")
-
-                    path = a_star(start_node, target, GRID_NODES)
-                    if path is None:
-                        print("❌ Nenhum caminho encontrado pelo A*.")
-                        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
-                        return
-
-                    print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
-                    send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
+                    print("🔄 Mudando para NAVIGATING")
                     auto_state = "NAVIGATING"
 
                 elif auto_state == "NAVIGATING":
