@@ -728,9 +728,17 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return
         print("✗ Falha ao alcançar a intersecção.")
         return None, None, False
 
-    # ⚠️  IMPORTANTE: Executa o giro final para a direção correta
-    new_dir = (cur_dir - 1) % 4 if side_hint == 'L' else (cur_dir + 1) % 4
-    print(f"🔄 Executando giro final: {dir_name(cur_dir)} → {dir_name(new_dir)}")
+    # ⚠️  IMPORTANTE: Calcula a direção correta baseada na orientação e lado escolhido
+    if cur_dir == 0:  # Norte
+        new_dir = 0 if side_hint == 'L' else 1  # Esquerda: reto (Norte), Direita: direita (Leste)
+    elif cur_dir == 1:  # Leste
+        new_dir = 0 if side_hint == 'L' else 1  # Esquerda: esquerda (Norte), Direita: reto (Leste)
+    elif cur_dir == 2:  # Sul
+        new_dir = 3 if side_hint == 'L' else 1  # Esquerda: direita (Oeste), Direita: esquerda (Leste)
+    elif cur_dir == 3:  # Oeste
+        new_dir = 3 if side_hint == 'L' else 0  # Esquerda: reto (Oeste), Direita: direita (Norte)
+
+    print(f"🔄 Executando giro final: {dir_name(cur_dir)} → {dir_name(new_dir)} (escolheu {'esquerda' if side_hint=='L' else 'direita'})")
 
     # Para antes de girar
     drive_cap(arduino, 0, 0); time.sleep(0.2)
