@@ -49,11 +49,11 @@ PIVOT_CAP       = 150     # limite superior do pivô
 PIVOT_MIN       = 120     # mínimo para vencer atrito
 PIVOT_TIMEOUT   = 7.0
 SEEN_FRAMES     = 2       # frames consecutivos "vendo" a linha para sair do giro
-ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [<=100]
-ALIGN_CAP       = 140     # cap de segurança na fase de alinhamento
+ALIGN_BASE      = 60      # velocidade base na fase de alinhamento (P)  [reduzida para mais precisão]
+ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
 ALIGN_TOL_PIX   = 8       # centralização final
-ALIGN_STABLE    = 4       # frames estáveis
-ALIGN_TIMEOUT   = 2.0     # tempo máx. alinhando (s)
+ALIGN_STABLE    = 3       # frames estáveis [reduzido para ser menos rigoroso]
+ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativamente]
 
 # Intersecção (mais tolerante - banda mais baixa para detectar interseções mais cedo)
 INT_BAND_Y0_FRAC        = 0.25
@@ -292,15 +292,20 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L'):
 
 def forward_align_on_line(arduino, camera):
     """Avança devagar usando P até o erro ficar pequeno por alguns frames."""
+    print("   🔄 Iniciando alinhamento na linha...")
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     stable=0; t0=time.time(); lost_frames=0; last_err=0.0; state='FOLLOW'
+    frame_count = 0
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
+            frame_count += 1
             img=f.array
             _, erro, conf = processar_imagem(img)
+
             if conf==1:
                 state='FOLLOW'; lost_frames=0; last_err=erro
                 v_esq, v_dir = calcular_velocidades_auto(erro, ALIGN_BASE)
+                print(f"      Frame {frame_count}: Seguindo | erro={erro:.1f} | vel=({v_esq},{v_dir})")
             else:
                 lost_frames+=1
                 if lost_frames>=LOST_MAX_FRAMES:
@@ -308,20 +313,27 @@ def forward_align_on_line(arduino, camera):
                 if state=='LOST':
                     turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                     v_esq, v_dir = int(turn*0.7), int(-turn*0.7)  # giro suave
+                    print(f"      Frame {frame_count}: Perdido! Procurando | vel=({v_esq},{v_dir})")
                 else:
                     v_esq, v_dir = ALIGN_BASE, ALIGN_BASE
+                    print(f"      Frame {frame_count}: Sem linha | vel=reto")
 
             drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
 
             if conf==1 and abs(erro)<=ALIGN_TOL_PIX:
                 stable+=1
+                print(f"      → Estável: {stable}/{ALIGN_STABLE} frames")
             else:
                 stable=0
+
             if stable>=ALIGN_STABLE:
+                print(f"      ✅ Alinhamento concluído após {frame_count} frames!")
                 drive_cap(arduino, 70, 70, cap=ALIGN_CAP); time.sleep(0.10)
                 drive_cap(arduino, 0, 0); return True
 
-            if (time.time()-t0) > ALIGN_TIMEOUT:
+            elapsed = time.time()-t0
+            if elapsed > ALIGN_TIMEOUT:
+                print(f"      ❌ Timeout após {elapsed:.1f}s ({frame_count} frames)")
                 drive_cap(arduino,0,0); return False
 
             raw.truncate(0); raw.seek(0)
