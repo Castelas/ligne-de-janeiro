@@ -173,32 +173,34 @@ def detect_intersections(mask):
             x, y = p
             if 0 <= x < W and 0 <= y < H: pts.append((x, y))
 
-    # Detectar apenas interseções de borda muito claras
-    # Só adicionar se houver uma linha perpendicular muito próxima (distância < 5 pixels)
-    for seg in segments:
-        x1, y1, x2, y2 = seg
-        is_vertical_seg = abs(x2 - x1) < abs(y2 - y1)
-        is_horizontal_seg = abs(y2 - y1) < abs(x2 - x1)
+    # Detectar interseções de borda MUITO conservadoras
+    # Só adicionar pontos que estão exatamente na borda da imagem
+    for lv in vertical:
+        rho_v, theta_v = lv
+        # Interseção com borda esquerda (x=0)
+        if abs(theta_v) > 0.1:  # Não vertical perfeita
+            y_left = int((rho_v - 0 * np.cos(theta_v)) / np.sin(theta_v))
+            if 0 <= y_left < H:
+                # Verificar se há linha horizontal próxima
+                for lh in horizontal:
+                    rho_h, theta_h = lh
+                    if abs(theta_h - np.pi/2) < 0.1:  # Horizontal
+                        dist = abs(y_left - rho_h / np.sin(theta_h))
+                        if dist < 3:  # Muito próximo
+                            pts.append((0, y_left))
+                            break
 
-        if is_vertical_seg:
-            end_y = max(y1, y2)
-            end_x = x1 if y1 > y2 else x2
-            # Verificar se há linha horizontal muito próxima
-            for lh in horizontal:
-                dist = distance_to_line((end_x, end_y), lh)
-                if dist < 5:  # Tolerância muito baixa para evitar falsos positivos
-                    pts.append((end_x, end_y))
-                    break
-
-        elif is_horizontal_seg:
-            end_x = max(x1, x2)
-            end_y = y1 if x1 > x2 else y2
-            # Verificar se há linha vertical muito próxima
-            for lv in vertical:
-                dist = distance_to_line((end_x, end_y), lv)
-                if dist < 5:  # Tolerância muito baixa
-                    pts.append((end_x, end_y))
-                    break
+        # Interseção com borda direita (x=W-1)
+        if abs(theta_v) > 0.1:
+            y_right = int((rho_v - (W-1) * np.cos(theta_v)) / np.sin(theta_v))
+            if 0 <= y_right < H:
+                for lh in horizontal:
+                    rho_h, theta_h = lh
+                    if abs(theta_h - np.pi/2) < 0.1:
+                        dist = abs(y_right - rho_h / np.sin(theta_h))
+                        if dist < 3:
+                            pts.append((W-1, y_right))
+                            break
 
     pts = _dedup_points(pts, radius=25)
     return pts, (vertical + horizontal)
