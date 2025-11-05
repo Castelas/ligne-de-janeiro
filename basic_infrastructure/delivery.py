@@ -842,12 +842,8 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
 
         # Executa a ação baseada no giro relativo (lógica do robot_pedro.py)
         if rel == 'F':
-            # GO_STRAIGHT: Seguir reto
-            print("   ➡️  Seguindo reto...")
-            drive_cap(arduino, STRAIGHT_SPEED, STRAIGHT_SPEED)
-            time.sleep(STRAIGHT_DURATION_S)
-            drive_cap(arduino, 0, 0)
-            print("   ✅ Seguiu reto")
+            # GO_STRAIGHT: Já está virado para a direção certa, apenas atualiza direção
+            print("   ➡️  Já virado para a direção certa, seguindo em frente...")
             cur_dir = want
 
         elif rel == 'L':
