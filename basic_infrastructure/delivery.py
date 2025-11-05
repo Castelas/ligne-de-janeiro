@@ -173,35 +173,32 @@ def detect_intersections(mask):
             x, y = p
             if 0 <= x < W and 0 <= y < H: pts.append((x, y))
 
-    # Detectar interseções de borda (-|)
-    # Quando uma linha termina próximo a outra linha perpendicular
+    # Detectar apenas interseções de borda muito claras
+    # Só adicionar se houver uma linha perpendicular muito próxima (distância < 5 pixels)
     for seg in segments:
         x1, y1, x2, y2 = seg
-        # Verificar se este segmento termina próximo a uma linha perpendicular
-        is_vertical_seg = abs(x2 - x1) < abs(y2 - y1)  # Segmento mais vertical
-        is_horizontal_seg = abs(y2 - y1) < abs(x2 - x1)  # Segmento mais horizontal
+        is_vertical_seg = abs(x2 - x1) < abs(y2 - y1)
+        is_horizontal_seg = abs(y2 - y1) < abs(x2 - x1)
 
         if is_vertical_seg:
-            # Segmento vertical terminando próximo a linha horizontal
+            end_y = max(y1, y2)
+            end_x = x1 if y1 > y2 else x2
+            # Verificar se há linha horizontal muito próxima
             for lh in horizontal:
-                # Verificar se a extremidade inferior do segmento vertical
-                # está próximo da linha horizontal
-                end_y = max(y1, y2)  # Extremidade inferior
-                end_x = x1 if y1 > y2 else x2
                 dist = distance_to_line((end_x, end_y), lh)
-                if dist < 15:  # 15 pixels de tolerância
+                if dist < 5:  # Tolerância muito baixa para evitar falsos positivos
                     pts.append((end_x, end_y))
+                    break
 
         elif is_horizontal_seg:
-            # Segmento horizontal terminando próximo a linha vertical
+            end_x = max(x1, x2)
+            end_y = y1 if x1 > x2 else y2
+            # Verificar se há linha vertical muito próxima
             for lv in vertical:
-                # Verificar se a extremidade direita do segmento horizontal
-                # está próximo da linha vertical
-                end_x = max(x1, x2)  # Extremidade direita
-                end_y = y1 if x1 > x2 else y2
                 dist = distance_to_line((end_x, end_y), lv)
-                if dist < 15:  # 15 pixels de tolerância
+                if dist < 5:  # Tolerância muito baixa
                     pts.append((end_x, end_y))
+                    break
 
     pts = _dedup_points(pts, radius=25)
     return pts, (vertical + horizontal)
