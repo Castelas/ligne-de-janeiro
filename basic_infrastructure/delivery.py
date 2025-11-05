@@ -302,7 +302,7 @@ def straight_until_seen_then_lost(arduino, camera):
                     lost+=1
                     if lost>=LOSE_FRAMES_START:
                         # Após perder a linha, anda um pouco mais para frente
-                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.5)  # Tempo aumentado
+                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.3)  # Tempo reduzido
                         drive_cap(arduino,0,0); return True
             if (time.time()-t0)>START_TIMEOUT_S:
                 drive_cap(arduino,0,0); return False
