@@ -10,7 +10,7 @@ import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
-THRESHOLD_VALUE = 180
+THRESHOLD_VALUE = 200  # Aumentado de 180 para reduzir falsos positivos
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
@@ -30,9 +30,9 @@ SEARCH_SPEED    = 120
 LOST_MAX_FRAMES = 5
 DEAD_BAND       = 6
 ROI_BOTTOM_FRAC = 0.55
-MIN_AREA_FRAC   = 0.004
+MIN_AREA_FRAC   = 0.008  # Aumentado de 0.004 para reduzir falsos positivos
 MAX_AREA_FRAC   = 0.25
-ASPECT_MIN      = 2.0
+ASPECT_MIN      = 3.0    # Aumentado de 2.0 para linhas mais alongadas
 LINE_POLARITY   = 'auto'
 USE_ADAPTIVE    = False
 
@@ -688,11 +688,23 @@ def main():
 
     # Inicializar câmera e streaming
     camera = PiCamera(); camera.resolution=(IMG_WIDTH, IMG_HEIGHT); camera.framerate=24
-    time.sleep(0.6)  # warm-up
+    time.sleep(1.0)  # warm-up mais longo
     init_streaming()  # Inicializar ZMQ
 
-    # Enviar primeiro frame básico
-    send_basic_frame(camera, "Sistema inicializado - aguardando comando")
+    # Aguardar um pouco mais antes do primeiro frame
+    time.sleep(0.5)
+
+    # Enviar primeiro frame básico com retry
+    for attempt in range(3):
+        try:
+            send_basic_frame(camera, "Sistema inicializado - aguardando comando")
+            print("📹 Primeiro frame enviado com sucesso")
+            break
+        except Exception as e:
+            print(f"Tentativa {attempt+1} falhou: {e}")
+            time.sleep(0.5)
+    else:
+        print("⚠️ Não conseguiu enviar primeiro frame, continuando...")
 
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
