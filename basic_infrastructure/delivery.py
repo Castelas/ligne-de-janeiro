@@ -312,12 +312,7 @@ def straight_until_seen_then_lost(arduino, camera):
 
 def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
-    if side_hint == 'F':
-        # Para reto, não girar, apenas parar e esperar ver a linha
-        drive_cap(arduino, 0, 0)
-        turn_sign = 0
-    else:
-        turn_sign = -1 if side_hint=='L' else +1
+    turn_sign = -1 if side_hint=='L' else +1
     # Ajustes de direção de giro por orientação podem ser adicionados aqui se necessário
     # Por enquanto, todas as orientações usam a lógica padrão
     pass
@@ -326,16 +321,14 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
             img_display, err, conf = processar_imagem(img)
-            if side_hint != 'F':
-                v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
-                drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
+            v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
+            drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
 
             # Enviar frame para o stream durante o pivot
             mask = build_binary_mask(img_display)
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
             display_frame = cv2.addWeighted(img_display, 0.7, mask_color, 0.3, 0)
-            action_text = "Pivot" if side_hint != 'F' else "Seguindo reto"
-            cv2.putText(display_frame, f"{action_text} - Conf: {conf}", (10, 30),
+            cv2.putText(display_frame, f"Pivot - Conf: {conf}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
             send_frame_to_stream(display_frame)
 
@@ -780,26 +773,21 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, target
 
     left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
 
-    # Se temos uma interseção alvo específica do A*, determinar direção relativa
+    # Se temos uma interseção alvo específica do A*, usar ela diretamente se possível
     if target_intersection is not None:
-        target_dir = orientation_of_step((sx, sy), target_intersection)
-        rel_turn = relative_turn(cur_dir, target_dir)
-        if rel_turn == 'F':
-            side_hint = 'F'  # Reto
-            chosen = target_intersection
-        elif rel_turn == 'L':
+        if target_intersection == left_corner:
             side_hint = 'L'
-            chosen = left_corner if target_intersection == left_corner else target_intersection
-        elif rel_turn == 'R':
+            chosen = left_corner
+        elif target_intersection == right_corner:
             side_hint = 'R'
-            chosen = right_corner if target_intersection == right_corner else target_intersection
+            chosen = right_corner
         else:
-            # Meia-volta ou outro caso, usar fallback
+            # Interseção alvo não acessível diretamente, usar fallback baseado no target final
             dl = manhattan(left_corner, target)
             dr = manhattan(right_corner, target)
             side_hint = 'L' if dl <= dr else 'R'
             chosen = left_corner if side_hint=='L' else right_corner
-            print(f"   ⚠️ Interseção alvo {target_intersection} requer meia-volta, usando fallback")
+            print(f"   ⚠️ Interseção alvo {target_intersection} não acessível, usando fallback")
     else:
         # Fallback para lógica antiga
         dl = manhattan(left_corner, target)
@@ -807,7 +795,7 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, target
         side_hint = 'L' if dl <= dr else 'R'
         chosen = left_corner if side_hint=='L' else right_corner
 
-    turn_desc = {'L':'esquerda', 'R':'direita', 'F':'reto'}[side_hint]
+    turn_desc = {'L':'esquerda', 'R':'direita'}[side_hint]
     print(f"   Escolhendo canto {chosen} (virada: {turn_desc})")
     if target_intersection is None:
         print(f"   Distância Manhattan: {dl} vs {dr}")
