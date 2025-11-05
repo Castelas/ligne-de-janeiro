@@ -682,10 +682,15 @@ def a_star(start,goal,grid=(5,5)):
     return None
 
 def orientation_of_step(a,b):
-    if b[1]<a[1]: return 0
-    if b[1]>a[1]: return 2
-    if b[0]>a[0]: return 1
-    return 3
+    # Coordenadas (linha, coluna) - linha cresce para baixo
+    # Norte: linha diminui (b[0] < a[0])
+    # Sul: linha aumenta (b[0] > a[0])
+    # Leste: coluna aumenta (b[1] > a[1])
+    # Oeste: coluna diminui (b[1] < a[1])
+    if b[0] < a[0]: return 0  # Norte
+    if b[0] > a[0]: return 2  # Sul
+    if b[1] > a[1]: return 1  # Leste
+    return 3  # Oeste
 def relative_turn(cur_dir,want_dir): return {0:'F',1:'R',2:'U',3:'L'}[(want_dir-cur_dir)%4]
 
 def dir_name(d):
@@ -809,6 +814,9 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         nxt=path[i]
         want=orientation_of_step(cur_node, nxt)
         rel=relative_turn(cur_dir,want)
+
+        # Debug: mostra cálculos
+        print(f"   DEBUG: cur_node={cur_node}, nxt={nxt}, cur_dir={cur_dir}({dir_name(cur_dir)}), want={want}({dir_name(want)}), rel={rel}")
 
         # Mostra cada virada específica
         turn_names = {'F':'reto', 'L':'esquerda', 'R':'direita', 'U':'meia-volta'}
