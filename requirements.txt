@@ -1,0 +1,5 @@
+opencv-python>=4.5.0
+numpy>=1.21.0
+pyserial>=3.5
+pyzmq>=22.0.0
+# picamera[array]>=1.13  # Só funciona no Raspberry Pi/Linux

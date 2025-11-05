@@ -17,3 +17,30 @@ Codes de départ pour l'EI ST5 VAC 2025
 
 # ligne-de-janeiro
 Project of line follower robot
+
+## Setup do Ambiente
+
+### Virtual Environment
+Este projeto usa uma virtual environment Python. Para ativar:
+
+```bash
+# Ativar a venv
+source venv/bin/activate
+
+# Verificar se está ativa
+which python  # deve mostrar caminho da venv
+
+# Desativar quando terminar
+deactivate
+```
+
+### Dependências
+As bibliotecas necessárias já estão listadas em `requirements.txt` e instaladas na venv:
+
+- **OpenCV** (`opencv-python`): Processamento de imagem e visão computacional
+- **NumPy** (`numpy`): Computação numérica e arrays
+- **PySerial** (`pyserial`): Comunicação serial com Arduino
+- **PyZMQ** (`pyzmq`): Comunicação de rede (ZeroMQ)
+
+### Nota sobre PiCamera
+A biblioteca `picamera` não está incluída pois só funciona no Raspberry Pi/Linux. No macOS, os scripts que usam câmera não funcionarão, mas o resto do código pode ser testado.
