@@ -266,7 +266,7 @@ def straight_until_seen_then_lost(arduino, camera):
     saw=False; lost=0; t0=time.time()
 
     # Começa com velocidade maior para ir mais longe
-    initial_speed = int(START_SPEED * 1.3)  # 30% mais rápido
+    initial_speed = int(START_SPEED * 1.15)  # 15% mais rápido (menos que antes)
     drive_cap(arduino, initial_speed, initial_speed); time.sleep(0.1)
 
     try:
@@ -292,7 +292,7 @@ def straight_until_seen_then_lost(arduino, camera):
                     lost+=1
                     if lost>=LOSE_FRAMES_START:
                         # Após perder a linha, anda um pouco mais para frente
-                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.3)
+                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.2)  # Menos tempo
                         drive_cap(arduino,0,0); return True
             if (time.time()-t0)>START_TIMEOUT_S:
                 drive_cap(arduino,0,0); return False
@@ -488,7 +488,9 @@ def go_to_next_intersection(arduino, camera):
                     prev=None; stable=0
 
                 if stable >= INT_STABLE_FR:
-                    print(f"   🚀 Interseção detectada! Continuando até passar...")
+                    print(f"   🚀 Interseção detectada em ({cand[0]}, {cand[1]})!")
+                    print(f"      → Agora vou continuar andando até passar completamente por ela")
+                    print(f"      → Depois acelero um pouco para frente e paro para o próximo giro")
                     phase = 'PASSING'
                     stable = 0  # Reset para próxima fase
 
@@ -541,8 +543,8 @@ def go_to_next_intersection(arduino, camera):
             now=time.time()
             if phase == 'DONE':
                 # Após passar pela interseção, acelera um pouco para frente para centralizar
-                print(f"   🚀 Acelerando para centralizar após interseção...")
-                drive_cap(arduino, 120, 120, cap=ALIGN_CAP); time.sleep(0.25)
+                print(f"   🚀 Acelerando levemente para centralizar após interseção...")
+                drive_cap(arduino, 110, 110, cap=ALIGN_CAP); time.sleep(0.15)  # Menos tempo e velocidade
                 drive_cap(arduino, 0, 0)
                 return True
 
