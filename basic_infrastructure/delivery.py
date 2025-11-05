@@ -307,14 +307,9 @@ def straight_until_seen_then_lost(arduino, camera):
 def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     turn_sign = -1 if side_hint=='L' else +1
-    # Ajuste de direção de giro por orientação devido a hardware/montagem
-    # Oeste precisa inverter devido à montagem dos motores
-    if orient == 3:  # Oeste
-        turn_sign = -turn_sign
-    # Adicionar outras orientações se necessário:
-    # elif orient == 0: turn_sign = -turn_sign  # Norte
-    # elif orient == 1: turn_sign = -turn_sign  # Leste
-    # elif orient == 2: turn_sign = -turn_sign  # Sul
+    # Ajustes de direção de giro por orientação podem ser adicionados aqui se necessário
+    # Por enquanto, todas as orientações usam a lógica padrão
+    pass
     seen_cnt=0; t0=time.time()
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
@@ -663,6 +658,39 @@ def front_left_right_corners(sx,sy,orient):
     if orient==2:  return ( (sx+1,sy),   (sx+1,sy+1) )
     if orient==3:  return ( (sx,sy+1),   (sx,sy) )
     raise ValueError
+
+def get_accessible_intersections(sx, sy, orient):
+    """Retorna todas as interseções acessíveis de um quadrado em uma orientação"""
+    left_corner, right_corner = front_left_right_corners(sx, sy, orient)
+    return [left_corner, right_corner]
+
+def find_best_accessible_intersection(path, cur_dir):
+    """
+    Encontra a interseção no path A* que seja acessível da orientação atual,
+    escolhendo a mais próxima do início do caminho.
+    """
+    if len(path) <= 1:
+        return path[0] if path else None
+
+    # Para qualquer quadrado, determinar interseções acessíveis
+    # Assumindo que estamos saindo do quadrado path[0]
+    start_square = path[0]
+    sx, sy = start_square
+
+    accessible = get_accessible_intersections(sx, sy, cur_dir)
+
+    # Procurar a interseção no path que seja acessível e mais próxima do início
+    for intersection in path[1:]:  # Começar do path[1] (primeira interseção)
+        if intersection in accessible:
+            return intersection
+
+    # Se nenhuma interseção do path for acessível, escolher a acessível com menor
+    # distância para a primeira interseção do path
+    target_intersection = path[1]
+    best_accessible = min(accessible,
+                         key=lambda inter: manhattan(inter, target_intersection))
+
+    return best_accessible
 
 def a_star(start,goal,grid=(5,5)):
     open_set={start}; came={}; g={start:0}; f={start:manhattan(start,goal)}
@@ -1076,9 +1104,9 @@ def main():
         print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
         send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
 
-        # A primeira interseção do caminho é path[1]
-        target_intersection = path[1] if len(path) > 1 else target
-        print(f"🎯 Primeira interseção alvo: {target_intersection}")
+        # Determinar a melhor interseção inicial baseada na orientação
+        target_intersection = find_best_accessible_intersection(path, cur_dir)
+        print(f"🎯 Melhor interseção acessível: {target_intersection} (baseado na orientação)")
 
         # Variáveis para o modo automático
         start_node = None
@@ -1139,10 +1167,18 @@ def main():
                     auto_state = "NAVIGATING"
 
                 elif auto_state == "NAVIGATING":
-                    print(f"🔄 Iniciando navegação do caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
-                    send_basic_frame(camera, f"Navegando: {' -> '.join([f'({x},{y})' for x,y in path])}")
+                    # Recalcular A* da interseção escolhida para o destino
+                    print(f"🔄 Recalculando A* da interseção {start_node} para destino {target}")
+                    optimized_path = a_star(start_node, target, GRID_NODES)
+                    if optimized_path is None:
+                        print("❌ Nenhum caminho encontrado da interseção escolhida.")
+                        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+                        return
 
-                    _, cur_dir, ok = follow_path(arduino, start_node, cur_dir, path, camera, arrival_dir)
+                    print(f"🗺️ CAMINHO OTIMIZADO: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
+                    send_basic_frame(camera, f"Navegando: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
+
+                    _, cur_dir, ok = follow_path(arduino, start_node, cur_dir, optimized_path, camera, arrival_dir)
                     if not ok:
                         print("❌ Falha na navegação.")
                         send_basic_frame(camera, "ERRO: Falha na navegacao")
