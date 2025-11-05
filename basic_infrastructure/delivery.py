@@ -24,13 +24,13 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 110
-VELOCIDADE_CURVA = 110
+VELOCIDADE_BASE = 100
+VELOCIDADE_CURVA = 100
 Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
-SEARCH_SPEED    = 120
+SEARCH_SPEED    = 100
 LOST_MAX_FRAMES = 5
 DEAD_BAND       = 3
 ROI_BOTTOM_FRAC = 0.55
@@ -51,7 +51,7 @@ TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 180     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
-PIVOT_TIMEOUT   = 2.1   # Ligeiramente aumentado para virar um tiquinho mais
+PIVOT_TIMEOUT   = 1.7   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
