@@ -52,7 +52,7 @@ TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 PIVOT_CAP       = 180     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
 PIVOT_TIMEOUT   = 2.0   # Muito reduzido para minimizar giro excessivo
-SEEN_FRAMES     = 2       # frames consecutivos "vendo" a linha para sair do giro
+SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
 ALIGN_TOL_PIX   = 8       # centralização final
@@ -324,14 +324,22 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L'):
 def forward_align_on_line(arduino, camera):
     """Avança devagar usando P até o erro ficar pequeno por alguns frames."""
     print("   🔄 Iniciando alinhamento na linha...")
+    # Pequena pausa para estabilizar após o pivot
+    time.sleep(0.3)
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     stable=0; t0=time.time(); lost_frames=0; last_err=0.0; state='FOLLOW'
     frame_count = 0; last_frame_sent = 0
+
+    # Tolerância maior no início (após pivot pode haver instabilidade)
+    initial_tolerance_frames = 10
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             frame_count += 1
             img=f.array
             _, erro, conf = processar_imagem(img)
+
+            # Tolerância maior nos primeiros frames após pivot
+            effective_lost_max = LOST_MAX_FRAMES * 2 if frame_count <= initial_tolerance_frames else LOST_MAX_FRAMES
 
             if conf==1:
                 state='FOLLOW'; lost_frames=0; last_err=erro
@@ -339,7 +347,7 @@ def forward_align_on_line(arduino, camera):
                 print(f"      Frame {frame_count}: Seguindo | erro={erro:.1f} | vel=({v_esq},{v_dir})")
             else:
                 lost_frames+=1
-                if lost_frames>=LOST_MAX_FRAMES:
+                if lost_frames>=effective_lost_max:
                     state='LOST'
                 if state=='LOST':
                     turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
@@ -347,7 +355,7 @@ def forward_align_on_line(arduino, camera):
                     print(f"      Frame {frame_count}: Perdido! Procurando | vel=({v_esq},{v_dir})")
                 else:
                     v_esq, v_dir = ALIGN_BASE, ALIGN_BASE
-                    print(f"      Frame {frame_count}: Sem linha | vel=reto")
+                    print(f"      Frame {frame_count}: Sem linha | vel=reto (tolerancia: {effective_lost_max})")
 
             drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
 
