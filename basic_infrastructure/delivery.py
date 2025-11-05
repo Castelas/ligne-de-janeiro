@@ -763,11 +763,17 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, path=N
         print("✗ Falha ao alcançar a intersecção.")
         return None, None, False
 
-    # O pivot já deixou o robô na direção correta, não precisa de giro adicional
-    print(f"✅ Pivot concluído - pronto para seguir")
+    # O pivot virou o robô para a direção do corner escolhido
+    # Atualizar cur_dir baseado no side_hint
+    if side_hint == 'L':
+        cur_dir = (cur_dir - 1) % 4  # Virou para esquerda
+    elif side_hint == 'R':
+        cur_dir = (cur_dir + 1) % 4  # Virou para direita
+
+    print(f"✅ Pivot concluído - agora virado para {dir_name(cur_dir)}")
 
     if return_arrival_dir:
-        # Após o pivot, o robô chega na interseção vindo da direção de orientação
+        # O robô chega na interseção vindo da direção atual
         arrival_dir = cur_dir
         print(f"📍 Chegando na interseção {chosen} vindo do {dir_name(arrival_dir)}")
         return chosen, cur_dir, True, arrival_dir
