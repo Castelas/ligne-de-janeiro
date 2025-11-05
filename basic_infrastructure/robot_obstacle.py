@@ -11,7 +11,7 @@ import serial
 
 # ============================= PARÂMETROS GERAIS =============================
 # --- REDE ---
-SERVER_IP = "192.168.137.78"     # <--- COLOQUE o IP do servidor (control.py)
+SERVER_IP = "192.168.137.176"     # <--- COLOQUE o IP do servidor (control.py)
 MY_ID     = "bot001"             # identificador do robô na rede
 
 # --- VISÃO ---
@@ -52,12 +52,6 @@ USE_ADAPTIVE    = False                 # threshold adaptativo desligado por pad
 # --- SERIAL ---
 PORTA_SERIAL = '/dev/ttyACM0'
 BAUDRATE = 115200
-
-# ======================== OBSTACLE/ULTRASSOM CONFIG ==========================
-REVERSE_TIME_S = 1.5     # tempo de ré quando obstáculo detectado (não usado)
-SPIN_TIME_S    = 1.6     # tempo aproximado para ~360° (não usado)
-# Ajuste do limiar ultrassônico: aumenta para 30 cm para considerar obstáculo
-ULTRA_THRESHOLD_CM = 30  # distância para considerar obstáculo
 
 # ============================ AUXILIARES VISUAIS ============================
 def _angle_diff(a, b):
@@ -252,42 +246,6 @@ def enviar_comando_motor_serial(arduino, v_esq, v_dir):
     comando = f"C {v_dir} {v_esq}\n"
     arduino.write(comando.encode('utf-8'))
 
-def ler_obstaculo_serial(arduino):
-    """Retorna True se detectarmos 'OB' no feedback da serial ou distância < limiar via 'S'."""
-    # tentar capturar resposta curta imediatamente
-    try:
-        if arduino.in_waiting:
-            line = arduino.readline().decode('utf-8', errors='ignore').strip()
-            if 'OB' in line:
-                return True
-    except Exception:
-        pass
-    # fallback: perguntar distância ao firmware (se suportado)
-    try:
-        arduino.write(b'S\n')
-        dist_line = arduino.readline().decode('utf-8', errors='ignore').strip()
-        if dist_line.isdigit():
-            d = int(dist_line)
-            if d > 0 and d < ULTRA_THRESHOLD_CM:
-                return True
-    except Exception:
-        pass
-    return False
-
-def rotina_obstaculo(arduino):
-    # 1) parar
-    arduino.write(b"C 0 0\n"); time.sleep(0.05)
-    # 2) ré
-    arduino.write(b"C -160 -160\n"); time.sleep(REVERSE_TIME_S)
-    # 3) giro ~360°
-    arduino.write(b"C 170 -170\n"); time.sleep(SPIN_TIME_S)
-    # 4) parar e rearmar proteção
-    arduino.write(b"C 0 0\n"); time.sleep(0.1)
-    try:
-        arduino.write(b'I1\n')
-    except Exception:
-        pass
-
 # ================================= MAIN =====================================
 def main():
     # --- ZMQ ---
@@ -309,40 +267,84 @@ def main():
     time.sleep(0.1)
 
     # --- Arduino ---
-    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
+    # Tempo de timeout reduzido para evitar bloqueio prolongado durante leituras da serial.
+    # Um timeout menor permite ler respostas do ultrassom sem travar a captura de vídeo.
+    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.1); time.sleep(2)
     try:
         arduino.write(b'A10\n')
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
-        # habilita proteção de obstáculo no firmware (para emitir 'OB')
-        arduino.write(b'I1\n')
     except Exception:
         pass
 
     # Estado do seguidor (sem derivativo)
+    # Possíveis estados: FOLLOW (seguindo linha), LOST (linha perdida),
+    # OBSTACLE (obstáculo detectado via ultrassom)
     last_err = 0.0
     lost_frames = 0
-    state = 'FOLLOW'  # FOLLOW | LOST | OBSTACLE
+    state = 'FOLLOW'
+
+    # Limite de distância para considerar a presença de obstáculo em cm
+    OBSTACLE_DISTANCE = 630
+    # Flag para imprimir mensagem somente quando detectar transição para obstáculo
+    prev_obstacle = False
 
     current_mode = MODO_AUTO
     v_esq, v_dir = 0, 0
     print("Robo iniciado. Pressione 'm' para trocar de modo.")
 
     try:
-        # Loop principal de captura e controle
         for frame in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             image = frame.array
 
+            # ----------- Detecção de obstáculo (ultrassom) ------------
+            # Lê a distância do sensor ultrassônico conectado ao Arduino. O comando 'S' (ou 's')
+            # aciona a função ULTRASON_code no firmware serial_link, que retorna a distância em cm.
+            # Antes de solicitar, limpamos o buffer de entrada para descartar ack's pendentes.
+            distance = None
+            try:
+                # Descarta dados antigos (acknowledgements de comandos anteriores)
+                # independentemente de haver bytes pendentes. Isso evita misturar "OK"/"OB" no retorno.
+                arduino.reset_input_buffer()
+                arduino.write(b'S\n')
+                # Tenta ler algumas linhas até achar um número
+                for _ in range(3):
+                    line = arduino.readline().decode('utf-8', errors='ignore').strip()
+                    # Se receber "OB" ou "OK" ignoramos
+                    if not line:
+                        continue
+                    # Verifica se a string representa um inteiro
+                    if line.lstrip('-').isdigit():
+                        distance = int(line)
+                        break
+                # Se ainda não obtivemos distância, distance permanece None
+            except Exception:
+                # Em caso de erro de leitura, não altera o estado
+                distance = None
+
+            # Atualiza estado em função da distância medida
+            if (distance is not None) and (distance > 0) and (distance <= OBSTACLE_DISTANCE):
+                # Obstáculo detectado: vai para estado OBSTACLE e para os motores
+                if state != 'OBSTACLE':
+                    print(f"Obstáculo detectado a {distance} cm")
+                state = 'OBSTACLE'
+                v_esq, v_dir = 0, 0
+                prev_obstacle = True
+            else:
+                # Sem obstáculo próximo: se estava em OBSTACLE retorna ao FOLLOW
+                if state == 'OBSTACLE':
+                    # Reinicia contador de frames perdidos e volta ao follow por padrão
+                    lost_frames = 0
+                    state = 'FOLLOW'
+                    prev_obstacle = False
+
             # ---------- Teclas (não bloqueante) ----------
             now = time.time()
-            # Solicita teclas periodicamente
             if not awaiting_reply and (now - last_req_ts) >= KEY_REQ_PERIOD:
                 try:
                     req_socket.send_pyobj({"from": MY_ID, "cmd": "key_request"})
-                    awaiting_reply = True
-                    last_req_ts = now
+                    awaiting_reply = True; last_req_ts = now
                 except Exception:
                     pass
-            # Recebe resposta de teclas, se houver
             if awaiting_reply:
                 socks = dict(poller.poll(0))
                 if req_socket in socks and socks[req_socket] == zmq.POLLIN:
@@ -354,75 +356,59 @@ def main():
                         pass
 
             key = last_key
-            toggled = (key == 'm' and prev_key != 'm')
-            prev_key = key
+            toggled = (key == 'm' and prev_key != 'm'); prev_key = key
             if toggled:
                 current_mode = MODO_MANUAL if current_mode == MODO_AUTO else MODO_AUTO
                 print(f"Modo: {current_mode}")
                 v_esq, v_dir = 0, 0
 
-            # Por omissão, sem confiança (para HUD)
-            conf = 0
+            conf = 0  # default p/ HUD caso esteja no modo MANUAL
 
-            # ----------------- DETECÇÃO DE OBSTÁCULO -----------------
-            # O primeiro passo é verificar se há obstáculo. Caso haja, o robô entra no estado
-            # OBSTACLE, para completamente e ignora a lógica de controle FOLLOW/LOST.
-            obst = False
-            try:
-                if ler_obstaculo_serial(arduino):
-                    obst = True
-            except Exception:
-                pass
-
-            if obst:
-                # Foi detectado um obstáculo: entra no modo OBSTACLE e para os motores
-                state = 'OBSTACLE'
-                v_esq, v_dir = 0, 0
-                lost_frames = 0
-            else:
-                # Não há obstáculo à frente: segue lógica de controle automático ou manual
-                if current_mode == MODO_AUTO:
-                    # Processa a imagem apenas quando não há obstáculo
+            # ----------------- CONTROLE -----------------
+            if current_mode == MODO_AUTO:
+                if state != 'OBSTACLE':
+                    # Só processa imagem e comanda motores se não houver obstáculo
                     image, erro, conf = processar_imagem(image)
 
                     if conf == 1:
-                        # Detecção válida: FOLLOW
+                        # Detecção válida: segue a faixa
                         state = 'FOLLOW'
                         lost_frames = 0
                         last_err = erro
 
-                        # Ajusta a velocidade de base de acordo com o erro para suavizar curvas
+                        # Ajuste de velocidade baseado no erro
                         speed_scale = max(0.35, 1.0 - abs(erro) / float(E_MAX_PIX))
                         base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
                         v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
                     else:
-                        # Nenhuma linha detectada: incrementa contador de quadros perdidos
+                        # Sem detecção: acumula perda até declarar LOST
                         lost_frames += 1
                         if lost_frames >= LOST_MAX_FRAMES:
                             state = 'LOST'
 
                         if state == 'LOST':
-                            # Em LOST, gira no lugar para procurar a linha na direção do último erro
+                            # Busca ativa: gira para o lado do último erro conhecido
                             turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                             v_esq, v_dir = int(turn), int(-turn)
                         else:
-                            # Janela antes de LOST: anda lentamente para frente
+                            # Janela de tolerância antes de declarar LOST: anda devagar e reto
                             base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                             v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
                 else:
-                    # Modo manual: controla conforme teclas se não há obstáculo
-                    if key == 'w':
-                        v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
-                    elif key == 's':
-                        v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
-                    elif key == 'a':
-                        v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
-                    elif key == 'd':
-                        v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
-                    elif key != '':
-                        v_esq, v_dir = 0, 0
+                    # Se há obstáculo, velocidades já foram zeradas acima
+                    pass
+            else:
+                # Modo manual ignora processamento da faixa, mas ainda obedece às teclas
+                if state != 'OBSTACLE':
+                    if key == 'w':   v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
+                    elif key == 's': v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
+                    elif key == 'a': v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
+                    elif key == 'd': v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
+                    elif key != '':  v_esq, v_dir = 0, 0
+                else:
+                    # Em obstáculo, independentemente da tecla, pare os motores
+                    v_esq, v_dir = 0, 0
 
-            # Envia comandos de motor (sempre envia, parando se necessário)
             enviar_comando_motor_serial(arduino, v_esq, v_dir)
 
             # ---------------- VISUALIZAÇÃO ----------------
@@ -430,11 +416,10 @@ def main():
             mask = build_binary_mask(display_frame)
             intersections, detected_lines = detect_intersections(mask)
 
-            # Aplica colormap à máscara para overlay
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
             display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
 
-            # Desenha linhas detectadas (verde)
+            # desenha linhas (verde)
             for rho, theta in detected_lines:
                 a, b = np.cos(theta), np.sin(theta)
                 x0, y0 = a * rho, b * rho
@@ -442,22 +427,19 @@ def main():
                 x2 = int(x0 - 1000 * (-b));  y2 = int(y0 - 1000 * (a))
                 cv2.line(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            # Desenha interseções detectadas (círculos vermelhos)
+            # interseções (vermelho)
             for idx, (x, y) in enumerate(intersections, 1):
                 cv2.circle(display_frame, (x, y), 8, (0, 0, 255), -1)
                 cv2.circle(display_frame, (x, y), 12, (255, 255, 255), 2)
                 cv2.putText(display_frame, f"{idx}", (x + 15, y - 15),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            # Informações de HUD
             cv2.putText(display_frame, f"Modo: {current_mode}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
             cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
-            # Cor do estado: vermelho para OBSTACLE, azul/laranja para outros
-            state_color = (0, 0, 255) if state == 'OBSTACLE' else (0, 200, 255)
             cv2.putText(display_frame, f"State: {state}", (10, 85),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
             cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 105),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
             cv2.putText(display_frame, f"Intersections: {len(intersections)}", (10, 125),
@@ -465,19 +447,11 @@ def main():
             cv2.putText(display_frame, f"Conf: {conf}  LostFrames: {lost_frames}", (10, 145),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
 
-            # Exibe texto adicional de alerta quando em OBSTACLE
-            if state == 'OBSTACLE':
-                h, w = display_frame.shape[:2]
-                cv2.putText(display_frame, "OBSTACLE DETECTED", (w//4, 20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-            # Codifica e envia o frame via ZMQ
             _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             pub_socket.send(base64.b64encode(buffer))
             raw.truncate(0)
 
     finally:
-        # Encerramento: para motores e fecha conexões
         print("Encerrando...")
         try:
             enviar_comando_motor_serial(arduino, 0, 0)
