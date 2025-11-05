@@ -268,9 +268,9 @@ def ler_obstaculo_serial(arduino):
 
 def rotina_obstaculo(arduino):
     # 1) parar
-    arduino.write(b"C 0 0\n"); time.sleep(0.05)
+    arduino.write(b"C 0 0\n"); time.sleep(1.5)
     # 2) ré
-    arduino.write(b"C -160 -160\n"); time.sleep(REVERSE_TIME_S)
+    arduino.write(b"C -200 -200\n"); time.sleep(REVERSE_TIME_S)
     # 3) giro ~180°
     arduino.write(b"C 170 -170\n"); time.sleep(SPIN_TIME_S)
     # 4) parar e rearmar proteção
