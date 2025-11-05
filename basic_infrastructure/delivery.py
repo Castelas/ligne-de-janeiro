@@ -393,9 +393,16 @@ def best_intersection_in_band(pts, h, band_y0, band_y1):
     return cand_in_band if cand_in_band is not None else cand_out_band
 
 def go_to_next_intersection(arduino, camera):
+    """
+    Vai até a próxima interseção: espera aparecer, continua até desaparecer.
+    """
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     last_err=0.0; lost_frames=0; state='FOLLOW'
     last_int_t=0.0; prev=None; stable=0; t0=time.time()
+
+    # Estados da função
+    phase = 'WAITING'  # WAITING -> PASSING -> DONE
+
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
@@ -418,7 +425,7 @@ def go_to_next_intersection(arduino, camera):
                     base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                     v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
 
-            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)  # manter razoável
+            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
 
             pts, detected_lines = detect_intersections(mask)
             h=mask.shape[0]
@@ -433,7 +440,34 @@ def go_to_next_intersection(arduino, camera):
                 else:
                     print(f"   ⚠️  Nenhuma interseção na banda y∈[{y0},{y1}]")
 
-            # Visualização das interseções (igual ao robot_new.py)
+            # Lógica de fases
+            if phase == 'WAITING':
+                # Espera a interseção aparecer e ficar estável
+                if cand is not None:
+                    if prev is not None and (np.hypot(cand[0]-prev[0], cand[1]-prev[1]) <= INT_MATCH_RADIUS):
+                        stable += 1
+                    else:
+                        prev = cand; stable = 1
+                else:
+                    prev=None; stable=0
+
+                if stable >= INT_STABLE_FR:
+                    print(f"   🚀 Interseção detectada! Continuando até passar...")
+                    phase = 'PASSING'
+                    stable = 0  # Reset para próxima fase
+
+            elif phase == 'PASSING':
+                # Continua até a interseção desaparecer
+                if cand is None:
+                    stable += 1
+                else:
+                    stable = 0
+
+                if stable >= 3:  # Interseção desapareceu por 3 frames
+                    print(f"   ✅ Interseção passou! Parando...")
+                    phase = 'DONE'
+
+            # Visualização das interseções
             display_frame = img.copy()
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
             display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
@@ -455,38 +489,26 @@ def go_to_next_intersection(arduino, camera):
 
             # Destaque a interseção candidata na banda
             if cand is not None:
-                cv2.circle(display_frame, cand, 15, (255, 0, 255), 3)  # magenta para destacar
+                cv2.circle(display_frame, cand, 15, (255, 0, 255), 3)
 
-            # HUD igual ao robot_new.py
-            cv2.putText(display_frame, f"State: {state}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
-            cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 55),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
-            cv2.putText(display_frame, f"Intersections: {len(pts)}", (10, 75),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
-            cv2.putText(display_frame, f"Stable: {stable}/{INT_STABLE_FR}", (10, 95),
+            # HUD com fase atual
+            phase_colors = {'WAITING': (255, 255, 0), 'PASSING': (0, 255, 255), 'DONE': (0, 255, 0)}
+            cv2.putText(display_frame, f"Phase: {phase}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, phase_colors.get(phase, (255,255,255)), 2)
+            cv2.putText(display_frame, f"State: {state}", (10, 55),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
+            cv2.putText(display_frame, f"Stable: {stable}", (10, 75),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
-            cv2.putText(display_frame, f"Band: {INT_BAND_Y0_FRAC:.2f}-{INT_BAND_Y1_FRAC:.2f}", (10, 115),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
 
-            # Enviar frame processado para streaming
             send_frame_to_stream(display_frame)
 
-            if cand is not None:
-                if prev is not None and (np.hypot(cand[0]-prev[0], cand[1]-prev[1]) <= INT_MATCH_RADIUS):
-                    stable += 1
-                else:
-                    prev = cand; stable = 1
-            else:
-                prev=None; stable=0
-
             now=time.time()
-            if stable>=INT_STABLE_FR and (now-last_int_t)>=INTERSECTION_COOLDOWN:
+            if phase == 'DONE':
                 drive_cap(arduino, 80, 80, cap=ALIGN_CAP); time.sleep(0.10); drive_cap(arduino,0,0)
-                last_int_t=now; return True
+                return True
 
             raw.truncate(0); raw.seek(0)
-            if (now-t0)>10.0:
+            if (now-t0)>15.0:  # Timeout maior
                 drive_cap(arduino,0,0); return False
     finally:
         raw.truncate(0)
