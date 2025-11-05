@@ -1,6 +1,7 @@
 # robot_new.py — seguidor de linha com rota automática pré-definida
 # Lógica de estado: FOLLOW, LOST, APPROACHING, STOPPING, STOPPED (automático),
 #                  TURN_LEFT, TURN_RIGHT, GO_STRAIGHT
+# (Versão com correção de robustez no 'APPROACHING')
 
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -24,14 +25,14 @@ THRESHOLD_VALUE = 180
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
-ROI_CROP_FRAC       = 0.10  # zera 20% do topo para reduzir ruído no overlay
+ROI_CROP_FRAC       = 0.20  # zera 20% do topo para reduzir ruído no overlay
 RHO_MERGE           = 40
 THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
 # --- CONTROLE (P puro; sem derivativo ainda) ---
-VELOCIDADE_BASE = 110
+VELOCIDADE_BASE = 150
 VELOCIDADE_CURVA = 100
 Kp = 0.8
 VELOCIDADE_MAX = 255
@@ -52,15 +53,15 @@ LINE_POLARITY   = 'auto'                # 'white', 'black' ou 'auto'
 USE_ADAPTIVE    = False                 # threshold adaptativo desligado por padrão
 
 # NOVOS PARÂMETROS PARA INTERSEÇÃO
-Y_START_SLOWING_FRAC = 0.50  # Começa a frear quando a interseção passa de 70% da altura
+Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 0.95    # Ponto de parada (para iniciar o "crawl") a 95% da altura
-CRAWL_SPEED = 80             # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.1       # Duração (segundos) do "anda mais um pouco"
+CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
+CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 
 # NOVOS PARÂMETROS PARA AÇÕES NA INTERSEÇÃO
 TURN_SPEED = 130             # Velocidade para girar (90 graus)
 TURN_DURATION_S = 1          # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
-STRAIGHT_SPEED = 90         # Velocidade para "seguir reto"
+STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 
 TURN_DURATION_S = 1          # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
 STRAIGHT_SPEED = 100         # Velocidade para "seguir reto"
@@ -384,46 +385,54 @@ def main():
                         print("Interseção detectada! Iniciando aproximação.")
                         state = 'APPROACHING'
                         last_known_y = target_y # Armazena Y inicial
+                        lost_frames = 0 # Zera o contador ao iniciar
                     else:
                         # Tudo normal, sem interseção
                         lost_frames = 0
                         last_err = erro
                         last_known_y = -1.0 # Garante que está limpo
 
+                # === INÍCIO DA CORREÇÃO 1: ESTADO 'APPROACHING' ROBUSTO ===
                 elif state == 'APPROACHING':
-                    # Prioridade 1: Perdemos a linha? (Condição de falha)
+                    # Verifica a perda de linha, mas com a tolerância de 'lost_frames'
                     if conf == 0:
-                        print("Linha perdida durante aproximação.")
-                        state = 'LOST'
-                        last_known_y = -1.0 # Reseta
+                        lost_frames += 1
+                        print(f"Approaching, confianca perdida! (Frame {lost_frames})")
                         
-                    # Prioridade 2: Ainda vemos a interseção?
-                    elif target_y != -1:
-                         last_known_y = target_y # Atualiza a posição
-                         
-                         # GATILHO 1: Atingimos o alvo de Y?
-                         if last_known_y >= Y_TARGET_STOP:
-                            print("Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
+                        # Só muda para LOST se a linha sumir por 8 frames
+                        if lost_frames >= LOST_MAX_FRAMES:
+                            print("Linha perdida DE VERDADE durante aproximação.")
+                            state = 'LOST'
+                            last_known_y = -1.0 # Reseta
+                    
+                    # Se tivermos confiança (conf == 1)
+                    else:
+                        # Se a linha voltou, zera o contador de perda
+                        lost_frames = 0 
+
+                        # Prioridade 2: Ainda vemos a interseção?
+                        if target_y != -1:
+                             last_known_y = target_y # Atualiza a posição
+                             
+                             # GATILHO 1: Atingimos o alvo de Y?
+                             if last_known_y >= Y_TARGET_STOP:
+                                print("Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
+                                state = 'STOPPING'
+                                action_start_time = time.time()
+                                last_known_y = -1.0 # Reseta para a próxima
+                             else:
+                                # Se não atingimos, apenas continuamos seguindo a linha
+                                last_err = erro 
+                        
+                        # Prioridade 3: A interseção DESAPARECEU (target_y == -1)
+                        # MAS ainda vemos a LINHA (conf == 1)?
+                        # (Gatilho 2: A câmera passou por cima da interseção)
+                        elif target_y == -1: # (conf == 1 é implícito pelo 'else' externo)
+                            print("Interseção passou do FoV. 'Andando mais um pouco'...")
                             state = 'STOPPING'
                             action_start_time = time.time()
                             last_known_y = -1.0 # Reseta para a próxima
-                         else:
-                            # Se não atingimos, apenas continuamos seguindo a linha
-                            last_err = erro 
-                    
-                    # Prioridade 3: A interseção DESAPARECEU (target_y == -1)
-                    # MAS ainda vemos a LINHA (conf == 1)?
-                    # (Gatilho 2: A câmera passou por cima da interseção)
-                    elif target_y == -1 and conf == 1:
-                        print("Interseção passou do FoV. 'Andando mais um pouco'...")
-                        state = 'STOPPING'
-                        action_start_time = time.time()
-                        last_known_y = -1.0 # Reseta para a próxima
-
-                    # Se nenhuma das anteriores, e ainda vemos a linha,
-                    # apenas continuamos seguindo a linha.
-                    elif conf == 1:
-                        last_err = erro
+                # === FIM DA CORREÇÃO 1 ===
                 
                 elif state == 'STOPPING':
                     if (time.time() - action_start_time) > CRAWL_DURATION_S:
@@ -472,18 +481,23 @@ def main():
                         state = 'FOLLOW'
                         last_err = 1 # Influencia a busca para a direita
 
+                # === INÍCIO DA CORREÇÃO 2: ESTADO 'GO_STRAIGHT' BÔNUS ===
                 elif state == 'GO_STRAIGHT':
                     if (time.time() - action_start_time) > STRAIGHT_DURATION_S:
                         print("Atravessou. Procurando linha...")
                         state = 'FOLLOW'
+                        last_err = 0 # Limpa o erro para evitar "embicada"
+                # === FIM DA CORREÇÃO 2 ===
 
                 elif state == 'LOST':
+                    # Só zera o lost_frames se a linha reaparecer
                     if conf == 1:
                         print("Linha reencontrada.")
                         state = 'FOLLOW'
                         lost_frames = 0
                         last_err = erro
                         last_known_y = -1.0 # Reseta
+                    # (Se 'conf' ainda é 0, ele permanece em LOST)
 
                 # 2. Ações de Estado (Definir velocidades)
                 if state == 'FOLLOW':
@@ -492,21 +506,30 @@ def main():
                         base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
                         v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
                     else:
+                        # Janela de tolerância (graças ao lost_frames): 
+                        # continua reto em vez de ir para 'LOST'
                         base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                         v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
                 
                 elif state == 'APPROACHING':
-                    # USA last_known_y para o cálculo, não target_y
-                    progress = 0.0
-                    if (Y_TARGET_STOP - Y_START_SLOWING) > 0: # Evita divisão por zero
-                        progress = (last_known_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
-                    
-                    speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
-                    
-                    current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
-                    base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
-                    # Segue a linha (erro) mesmo durante a frenagem
-                    v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
+                    # Se estamos em 'APPROACHING' mas perdemos 'conf' (dentro da tolerância):
+                    if conf == 0:
+                        # Continua reto em velocidade reduzida
+                        base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
+                        v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
+                    else:
+                        # Se 'conf' está OK, executa a frenagem gradual
+                        # USA last_known_y para o cálculo, não target_y
+                        progress = 0.0
+                        if (Y_TARGET_STOP - Y_START_SLOWING) > 0: # Evita divisão por zero
+                            progress = (last_known_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
+                        
+                        speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
+                        
+                        current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
+                        base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
+                        # Segue a linha (erro) mesmo durante a frenagem
+                        v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
 
                 elif state == 'STOPPING':
                     # "Anda mais um pouco" - crawl reto
