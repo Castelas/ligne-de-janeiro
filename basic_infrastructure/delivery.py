@@ -585,7 +585,41 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
         print("✗ Falha no pivô (não viu linha).")
         return None, None, False
 
-    # Segue diretamente para 1ª intersecção (sem alinhamento complexo)
+    # Alinhamento rápido: centralizar a linha por alguns frames
+    print("   🎯 Alinhando linha no centro...")
+    raw_temp = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
+    align_count = 0
+    try:
+        for f in camera.capture_continuous(raw_temp, format="bgr", use_video_port=True):
+            if align_count >= 10:  # Máximo 10 frames de alinhamento
+                break
+            img_temp = f.array
+            _, erro, conf = processar_imagem(img_temp)
+
+            if conf == 1 and abs(erro) <= 10:  # Já está bem centralizado
+                print(f"   ✅ Linha alinhada (erro: {erro:.1f})")
+                break
+
+            # Movimento de correção simples
+            if conf == 1:
+                base_speed = 70
+                if erro > 5:  # Linha à direita, virar esquerda
+                    drive_cap(arduino, base_speed-20, base_speed+20, cap=ALIGN_CAP)
+                elif erro < -5:  # Linha à esquerda, virar direita
+                    drive_cap(arduino, base_speed+20, base_speed-20, cap=ALIGN_CAP)
+                else:  # Centralizado
+                    drive_cap(arduino, base_speed, base_speed, cap=ALIGN_CAP)
+            else:
+                drive_cap(arduino, 60, 60, cap=ALIGN_CAP)  # Anda devagar se perdeu linha
+
+            time.sleep(0.05)  # Frame rate control
+            align_count += 1
+            raw_temp.truncate(0)
+    finally:
+        drive_cap(arduino, 0, 0); time.sleep(0.1)  # Para antes de continuar
+        raw_temp.truncate(0)
+
+    # Segue para 1ª intersecção
     if not go_to_next_intersection(arduino, camera):
         print("✗ Falha ao alcançar a intersecção.")
         return None, None, False
