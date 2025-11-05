@@ -26,13 +26,13 @@ PAR_TOL_DEG         = 8
 
 VELOCIDADE_BASE = 110
 VELOCIDADE_CURVA = 110
-Kp = 0.75             # Ganho do controlador P
+Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
 SEARCH_SPEED    = 120
 LOST_MAX_FRAMES = 5
-DEAD_BAND       = 6
+DEAD_BAND       = 3
 ROI_BOTTOM_FRAC = 0.55
 MIN_AREA_FRAC   = 0.006  # Reduzido para detectar linhas válidas
 MAX_AREA_FRAC   = 0.25
@@ -241,8 +241,9 @@ def calcular_velocidades_auto(erro, base_speed):
     correcao = Kp * float(erro)
     v_esq = base_speed + correcao
     v_dir = base_speed - correcao
-    v_esq = int(np.clip(v_esq, 80, VELOCIDADE_MAX))  # Mínimo aumentado para 80
-    v_dir = int(np.clip(v_dir, 80, VELOCIDADE_MAX))  # Mínimo aumentado para 80
+    # Permite velocidades mais baixas para correções, mas mantém mínimo razoável
+    v_esq = int(np.clip(v_esq, 60, VELOCIDADE_MAX))
+    v_dir = int(np.clip(v_dir, 60, VELOCIDADE_MAX))
     return v_esq, v_dir
 
 def enviar_comando_motor_serial(arduino, v_esq, v_dir):
@@ -533,13 +534,11 @@ def go_to_next_intersection(arduino, camera):
             # 2. Ações de Estado (Definir velocidades)
             if state == 'FOLLOW':
                 if conf == 1:
-                    speed_scale = max(0.35, 1.0 - abs(erro) / float(E_MAX_PIX))
-                    base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
-                    v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
+                    # Mantém velocidade base constante, apenas corrige com P
+                    v_esq, v_dir = calcular_velocidades_auto(erro, VELOCIDADE_BASE)
                 else:
                     # Janela de tolerância: continua reto
-                    base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
-                    v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
+                    v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
 
             elif state == 'APPROACHING':
                 if conf == 0:
