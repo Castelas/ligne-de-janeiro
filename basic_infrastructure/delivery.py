@@ -22,7 +22,7 @@ PAR_TOL_DEG         = 8
 
 VELOCIDADE_BASE = 100
 VELOCIDADE_CURVA = 100
-Kp = 0.6              # Reduzido de 0.75 para correções menores
+Kp = 0.75             # Ganho do controlador P
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
