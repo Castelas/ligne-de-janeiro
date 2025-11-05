@@ -638,6 +638,7 @@ inline void task4() {
       set_motor1(0) ;
       set_motor2(0) ;
       task3on = false ;        // arret du démarrage progressif
+      Serial.println("OB");   // Envoie "OB" au Raspberry Pi
     }
     tim4=tim4+del4 ;
   }
