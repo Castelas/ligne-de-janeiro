@@ -18,6 +18,7 @@ def main():
     # Socket REQ para comandos
     req_socket = context.socket(zmq.REQ)
     req_socket.connect(f"tcp://{SERVER_IP}:5005")
+    req_socket.setsockopt(zmq.RCVTIMEO, 1000)  # Timeout 1s para receber
 
     print("Controle iniciado.")
     print("Use W,A,S,D para controle manual (segurar as teclas).")
@@ -55,25 +56,34 @@ def main():
                     mode_str = "MANUAL" if manual_mode else "AUTOMATICO"
                     print(f"Mudando para modo {mode_str}")
                     msg = {"from": "control", "cmd": "key", "key": char_key}
-                    req_socket.send_pyobj(msg)
-                    req_socket.recv_pyobj() # Espera confirmação
+                    try:
+                        req_socket.send_pyobj(msg)
+                        req_socket.recv_pyobj() # Espera confirmação
+                    except zmq.Again:
+                        print("⚠️  Timeout no comando 'm'")
 
                 elif manual_mode and char_key in ['w', 'a', 's', 'd']:
                     # Em modo manual, envia tecla de movimento
                     if char_key != current_key:
                         msg = {"from": "control", "cmd": "key", "key": char_key}
-                        req_socket.send_pyobj(msg)
-                        req_socket.recv_pyobj() # Espera confirmação
-                        current_key = char_key
-                        print(f"Enviando comando: {char_key}")
+                        try:
+                            req_socket.send_pyobj(msg)
+                            req_socket.recv_pyobj() # Espera confirmação
+                            current_key = char_key
+                            print(f"Enviando comando: {char_key}")
+                        except zmq.Again:
+                            print(f"⚠️  Timeout no comando {char_key}")
 
             elif manual_mode and current_key != '':
                 # Se estava em modo manual mas nenhuma tecla está pressionada, para o robô
                 msg = {"from": "control", "cmd": "key", "key": "stop"}
-                req_socket.send_pyobj(msg)
-                req_socket.recv_pyobj() # Espera confirmação
-                current_key = ''
-                print("Robô parado (nenhuma tecla pressionada)")
+                try:
+                    req_socket.send_pyobj(msg)
+                    req_socket.recv_pyobj() # Espera confirmação
+                    current_key = ''
+                    print("Robô parado (nenhuma tecla pressionada)")
+                except zmq.Again:
+                    print("⚠️  Timeout no comando 'stop'")
 
     finally:
         print("Encerrando...")
