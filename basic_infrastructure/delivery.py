@@ -65,7 +65,7 @@ Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela in
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - conforme solicitado
-TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ligeiramente aumentado
+TURN_DURATION_S = 0.9        # Duração (segundos) para o giro - aumentado conforme solicitado
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
