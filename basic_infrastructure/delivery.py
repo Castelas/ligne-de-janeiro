@@ -10,7 +10,7 @@ import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
-THRESHOLD_VALUE = 200  # Aumentado de 180 para reduzir falsos positivos
+THRESHOLD_VALUE = 160  # Reduzido para detectar linhas válidas novamente
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
@@ -30,9 +30,9 @@ SEARCH_SPEED    = 120
 LOST_MAX_FRAMES = 5
 DEAD_BAND       = 6
 ROI_BOTTOM_FRAC = 0.55
-MIN_AREA_FRAC   = 0.008  # Aumentado de 0.004 para reduzir falsos positivos
+MIN_AREA_FRAC   = 0.006  # Reduzido para detectar linhas válidas
 MAX_AREA_FRAC   = 0.25
-ASPECT_MIN      = 3.0    # Aumentado de 2.0 para linhas mais alongadas
+ASPECT_MIN      = 2.5    # Reduzido para ser menos rigoroso
 LINE_POLARITY   = 'auto'
 USE_ADAPTIVE    = False
 
@@ -52,7 +52,7 @@ SEEN_FRAMES     = 2       # frames consecutivos "vendo" a linha para sair do gir
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
 ALIGN_TOL_PIX   = 8       # centralização final
-ALIGN_STABLE    = 3       # frames estáveis [reduzido para ser menos rigoroso]
+ALIGN_STABLE    = 2       # frames estáveis [reduzido para entrar em FOLLOW mais rápido]
 ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativamente]
 
 # Intersecção (mais tolerante - banda mais baixa para detectar interseções mais cedo)
@@ -295,7 +295,7 @@ def forward_align_on_line(arduino, camera):
     print("   🔄 Iniciando alinhamento na linha...")
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     stable=0; t0=time.time(); lost_frames=0; last_err=0.0; state='FOLLOW'
-    frame_count = 0
+    frame_count = 0; last_frame_sent = 0
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             frame_count += 1
@@ -320,6 +320,29 @@ def forward_align_on_line(arduino, camera):
 
             drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
 
+            # Criar frame para visualização
+            display_frame = img.copy()
+            mask = build_binary_mask(display_frame)
+            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+            display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
+
+            # HUD de alinhamento
+            cv2.putText(display_frame, f"Alinhamento - Frame {frame_count}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            cv2.putText(display_frame, f"Estado: {state}", (10, 55),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
+            cv2.putText(display_frame, f"Confiança: {conf}", (10, 75),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            cv2.putText(display_frame, f"Erro: {erro:.1f}", (10, 95),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
+            cv2.putText(display_frame, f"Estável: {stable}/{ALIGN_STABLE}", (10, 115),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
+
+            # Enviar frame a cada 5 frames ou quando importante
+            if frame_count - last_frame_sent >= 5 or stable >= ALIGN_STABLE:
+                send_frame_to_stream(display_frame)
+                last_frame_sent = frame_count
+
             if conf==1 and abs(erro)<=ALIGN_TOL_PIX:
                 stable+=1
                 print(f"      → Estável: {stable}/{ALIGN_STABLE} frames")
@@ -328,6 +351,11 @@ def forward_align_on_line(arduino, camera):
 
             if stable>=ALIGN_STABLE:
                 print(f"      ✅ Alinhamento concluído após {frame_count} frames!")
+                # Frame final de sucesso
+                cv2.putText(display_frame, "ALINHAMENTO CONCLUIDO!", (10, 135),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                send_frame_to_stream(display_frame)
+
                 drive_cap(arduino, 70, 70, cap=ALIGN_CAP); time.sleep(0.10)
                 drive_cap(arduino, 0, 0); return True
 
