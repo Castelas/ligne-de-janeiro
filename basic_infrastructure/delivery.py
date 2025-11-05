@@ -64,8 +64,8 @@ Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70
 Y_TARGET_STOP_FRAC = 0.95    # Aumentado para 95% - passa mais pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
-TURN_SPEED = 150             # Velocidade para girar (90 graus) - reduzido para controlar
-TURN_DURATION_S = 0.3        # Duração (segundos) para o giro - conforme solicitado
+TURN_SPEED = 200             # Velocidade para girar (90 graus) - aumentado para garantir giro
+TURN_DURATION_S = 0.7        # Duração (segundos) para o giro - aumentado para completar 90 graus
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
@@ -840,18 +840,20 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
 
         elif rel == 'L':
             # TURN_LEFT: Virar 90° esquerda
-            print("   ↪️  Virando esquerda...")
+            print(f"   ↪️  Virando esquerda: drive_cap({arduino}, {-TURN_SPEED}, {TURN_SPEED}) por {TURN_DURATION_S}s")
             drive_cap(arduino, -TURN_SPEED, TURN_SPEED)
             time.sleep(TURN_DURATION_S)
+            print(f"   🛑 Parando giro esquerdo...")
             drive_cap(arduino, 0, 0); time.sleep(0.3)
             print("   ✅ Virou esquerda")
             cur_dir = want
 
         elif rel == 'R':
             # TURN_RIGHT: Virar 90° direita
-            print("   ↩️  Virando direita...")
+            print(f"   ↩️  Virando direita: drive_cap({arduino}, {TURN_SPEED}, {-TURN_SPEED}) por {TURN_DURATION_S}s")
             drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
             time.sleep(TURN_DURATION_S)
+            print(f"   🛑 Parando giro direito...")
             drive_cap(arduino, 0, 0); time.sleep(0.3)
             print("   ✅ Virou direita")
             cur_dir = want
