@@ -876,14 +876,11 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             print(f"   ❌ Falha ao alcançar ({nxt[0]},{nxt[1]})")
             return cur_node,cur_dir,False
 
-        # Calcula de qual direção chegou na próxima interseção
-        # Se estava indo para 'want' direção, chega vindo da direção oposta
-        arrival_dir_next = (want + 2) % 4  # Oposto: N<->S, L<->O
-
-        print(f"   ✅ Chegou em ({nxt[0]},{nxt[1]}) vindo do {dir_name(arrival_dir_next)}")
+        # Após o movimento, o robô mantém a direção 'want' para a qual estava indo
+        print(f"   ✅ Chegou em ({nxt[0]},{nxt[1]}) virado para {dir_name(want)}")
         print()
         cur_node=nxt
-        cur_dir = arrival_dir_next  # Atualiza direção de chegada para a próxima
+        cur_dir = want  # Mantém a direção para a qual estava indo
 
     print(f"🎯 Chegou ao destino final!")
     return cur_node,cur_dir,True
