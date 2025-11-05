@@ -528,15 +528,17 @@ def go_to_next_intersection(arduino, camera):
                     if lost_frames >= LOST_MAX_FRAMES:
                         state = 'LOST'
                         last_known_y = -1.0
-                elif target_y > Y_START_SLOWING:
-                    print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
-                    state = 'APPROACHING'
-                    last_known_y = target_y
-                    lost_frames = 0
                 else:
-                    lost_frames = 0
-                    last_err = erro
-                    last_known_y = -1.0
+                    # Linha OK - verificar se devemos aproximar
+                    if target_y > Y_START_SLOWING:
+                        print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
+                        state = 'APPROACHING'
+                        last_known_y = target_y
+                        lost_frames = 0
+                    else:
+                        lost_frames = 0
+                        last_err = erro
+                        last_known_y = -1.0
 
             elif state == 'APPROACHING':
                 # Verifica a perda de linha, mas com tolerância
