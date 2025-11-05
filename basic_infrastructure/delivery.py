@@ -49,7 +49,7 @@ START_SPEED  = 90        # reta cega
 TURN_SPEED   = 190        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
-PIVOT_CAP       = 180     # limite superior do pivô - aumentado
+PIVOT_CAP       = 150     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
 PIVOT_TIMEOUT   = 1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
