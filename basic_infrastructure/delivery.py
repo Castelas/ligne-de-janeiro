@@ -1128,16 +1128,11 @@ def main():
         print("🤖 MODO AUTOMÁTICO")
         print()
 
-        # Determinar interseção inicial baseada na orientação
-        accessible = get_accessible_intersections(sx, sy, cur_dir)
-        start_intersection = min(accessible, key=lambda inter: manhattan(inter, (tx, ty)))
-        print(f"🎯 Interseção inicial escolhida: {start_intersection} (baseado na orientação e destino)")
-
-        # Calcular A* da interseção inicial para o destino
+        # Calcular A* do quadrado inicial para determinar a primeira interseção
         print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
         send_basic_frame(camera, "Calculando caminho A*...")
 
-        path = a_star(start_intersection, (tx, ty), GRID_NODES)
+        path = a_star((sx, sy), (tx, ty), GRID_NODES)
         if path is None:
             print("❌ Nenhum caminho encontrado pelo A*.")
             send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
