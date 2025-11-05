@@ -683,10 +683,13 @@ def go_to_next_intersection(arduino, camera):
 def manhattan(a,b): return abs(a[0]-b[0])+abs(a[1]-b[1])
 
 def front_left_right_corners(sx,sy,orient):
-    if orient==0:  return ( (sx,sy),     (sx+1,sy) )
-    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )
-    if orient==2:  return ( (sx+1,sy+1), (sx+1,sy) )
-    if orient==3:  return ( (sx,sy),     (sx,sy+1) )
+    # Retorna (left_corner, right_corner) relativos à direção de movimento
+    # left_corner: interseção alcançável virando para esquerda
+    # right_corner: interseção alcançável virando para direita
+    if orient==0:  return ( (sx,sy-1),   (sx,sy+1) )     # Norte: left=Oeste, right=Leste
+    if orient==1:  return ( (sx-1,sy),   (sx+1,sy) )     # Leste: left=Norte, right=Sul
+    if orient==2:  return ( (sx,sy+1),   (sx,sy-1) )     # Sul: left=Leste, right=Oeste
+    if orient==3:  return ( (sx+1,sy),   (sx-1,sy) )     # Oeste: left=Sul, right=Norte
     raise ValueError
 
 def get_accessible_intersections(sx, sy, orient):
