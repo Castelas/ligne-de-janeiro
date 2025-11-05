@@ -14,7 +14,7 @@ SERVER_IP = "192.168.137.176"  # IP do computador que roda o server.py
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
-THRESHOLD_VALUE = 180  # Mesmo valor do robot_pedro.py
+THRESHOLD_VALUE = 150  # Voltar para valor anterior que funcionava
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
@@ -37,7 +37,7 @@ ROI_BOTTOM_FRAC = 0.55
 MIN_AREA_FRAC   = 0.006  # Reduzido para detectar linhas válidas
 MAX_AREA_FRAC   = 0.25
 ASPECT_MIN      = 2.5    # Reduzido para ser menos rigoroso
-LINE_POLARITY   = 'auto'                # Mesmo do robot_pedro.py (permite fallback)
+LINE_POLARITY   = 'white'               # Forçado para branco novamente
 USE_ADAPTIVE    = False
 
 PORTA_SERIAL = '/dev/ttyACM0'
@@ -103,10 +103,10 @@ def build_binary_mask(image_bgr):
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     _, mask = cv2.threshold(gray, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
 
-    # Mesmas operações morfológicas do robot_pedro.py
-    k = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)
+    # Operações morfológicas simples
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
     # Remove parte superior da imagem (céu/ruído)
     top = int(h * ROI_CROP_FRAC)
