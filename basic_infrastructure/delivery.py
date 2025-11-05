@@ -49,8 +49,8 @@ START_SPEED  = 110        # reta cega
 TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
-PIVOT_CAP       = 150     # limite superior do pivô
-PIVOT_MIN       = 120     # mínimo para vencer atrito
+PIVOT_CAP       = 180     # limite superior do pivô - aumentado
+PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
 PIVOT_TIMEOUT   = 10.0  # Aumentado para girar mais
 SEEN_FRAMES     = 2       # frames consecutivos "vendo" a linha para sair do giro
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
