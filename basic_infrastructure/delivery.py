@@ -51,7 +51,7 @@ TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 150     # limite superior do pivô
 PIVOT_MIN       = 120     # mínimo para vencer atrito
-PIVOT_TIMEOUT   = 7.0
+PIVOT_TIMEOUT   = 10.0  # Aumentado para girar mais
 SEEN_FRAMES     = 2       # frames consecutivos "vendo" a linha para sair do giro
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
@@ -61,7 +61,7 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 0.95    # Ponto de parada (para iniciar o "crawl") a 95% da altura
+Y_TARGET_STOP_FRAC = 0.85    # Reduzido para 85% da altura (mais fácil de alcançar)
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 TURN_SPEED = 200             # Velocidade para girar (90 graus) - aumentado
@@ -454,6 +454,10 @@ def go_to_next_intersection(arduino, camera):
             Y_START_SLOWING = h * Y_START_SLOWING_FRAC
             Y_TARGET_STOP = h * Y_TARGET_STOP_FRAC
 
+            # Debug: mostrar valores importantes
+            if target_y != -1:
+                print(f"   🎯 Interseção Y={target_y:.0f}, Y_TARGET_STOP={Y_TARGET_STOP:.0f}, State={state}")
+
             # --- Máquina de Estados de Controle (do robot_pedro.py) ---
 
             # 1. Transições de Estado
@@ -464,7 +468,7 @@ def go_to_next_intersection(arduino, camera):
                         state = 'LOST'
                         last_known_y = -1.0
                 elif target_y > Y_START_SLOWING:
-                    print("   🎯 Interseção detectada! Iniciando aproximação.")
+                    print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
                     state = 'APPROACHING'
                     last_known_y = target_y
                     lost_frames = 0
@@ -491,9 +495,16 @@ def go_to_next_intersection(arduino, camera):
                     if target_y != -1:
                          last_known_y = target_y
 
-                         # GATILHO: Atingimos o alvo de Y?
+                         # GATILHO 1: Atingimos o alvo de Y?
                          if last_known_y >= Y_TARGET_STOP:
                             print("   🛑 Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
+                            state = 'STOPPING'
+                            action_start_time = time.time()
+                            last_known_y = -1.0 # Reseta para a próxima
+
+                        # GATILHO 2: Interseção desapareceu completamente (backup)
+                        elif target_y == -1 and last_known_y > Y_START_SLOWING:
+                            print(f"   🛑 Interseção desapareceu (era Y={last_known_y:.0f}). Parando...")
                             state = 'STOPPING'
                             action_start_time = time.time()
                             last_known_y = -1.0 # Reseta para a próxima
