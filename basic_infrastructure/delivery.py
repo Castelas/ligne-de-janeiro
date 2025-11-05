@@ -170,24 +170,6 @@ def detect_intersections(mask):
             if p is None: continue
             x, y = p
             if 0 <= x < W and 0 <= y < H: pts.append((x, y))
-
-    # Detectar interseções de borda (linhas terminando próximas ao centro da tela)
-    # Isso indica que o robô está vendo uma interseção de borda do grid
-    center_x = W // 2
-    center_threshold = W // 8  # Tolerância de 1/8 da largura
-
-    for seg in segments:
-        x1, y1, x2, y2 = seg
-
-        # Verificar se o segmento termina próximo ao centro horizontal
-        end_x = x2 if abs(x2 - x1) > abs(y2 - y1) else x1  # Extremidade baseada na orientação
-        end_y = y2 if abs(x2 - x1) > abs(y2 - y1) else y1
-
-        if abs(end_x - center_x) < center_threshold and 0 <= end_y < H:
-            # Segmento termina próximo ao centro, pode ser interseção de borda
-            # Adicionar como interseção no centro da tela
-            pts.append((center_x, end_y))
-
     pts = _dedup_points(pts, radius=25)
     return pts, (vertical + horizontal)
 
