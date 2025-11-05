@@ -24,7 +24,7 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 100
+VELOCIDADE_BASE = 90
 VELOCIDADE_CURVA = 100
 Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
