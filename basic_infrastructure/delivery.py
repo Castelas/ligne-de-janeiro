@@ -304,9 +304,17 @@ def straight_until_seen_then_lost(arduino, camera):
     finally:
         raw.truncate(0)
 
-def spin_in_place_until_seen(arduino, camera, side_hint='L'):
+def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     turn_sign = -1 if side_hint=='L' else +1
+    # Ajuste de direção de giro por orientação devido a hardware/montagem
+    # Oeste precisa inverter devido à montagem dos motores
+    if orient == 3:  # Oeste
+        turn_sign = -turn_sign
+    # Adicionar outras orientações se necessário:
+    # elif orient == 0: turn_sign = -turn_sign  # Norte
+    # elif orient == 1: turn_sign = -turn_sign  # Leste
+    # elif orient == 2: turn_sign = -turn_sign  # Sul
     seen_cnt=0; t0=time.time()
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
@@ -653,7 +661,7 @@ def front_left_right_corners(sx,sy,orient):
     if orient==0:  return ( (sx,sy),     (sx+1,sy) )
     if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )
     if orient==2:  return ( (sx+1,sy),   (sx+1,sy+1) )
-    if orient==3:  return ( (sx,sy),     (sx,sy+1) )
+    if orient==3:  return ( (sx,sy+1),   (sx,sy) )
     raise ValueError
 
 def a_star(start,goal,grid=(5,5)):
@@ -740,7 +748,7 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, target
         return None, None, False
 
     # Pivô: girar até ver a linha
-    if not spin_in_place_until_seen(arduino, camera, side_hint=side_hint):
+    if not spin_in_place_until_seen(arduino, camera, side_hint=side_hint, orient=cur_dir):
         print("✗ Falha no pivô (não viu linha).")
         return None, None, False
 
