@@ -164,44 +164,12 @@ def detect_intersections(mask):
     horizontal = [l for l in lines if _angle_diff(l[1], np.pi/2) < _deg(15)]
     H, W = mask.shape[:2]
     pts = []
-
-    # Detectar interseções completas (-|-)
     for lv in vertical:
         for lh in horizontal:
             p = line_intersection(lv, lh)
             if p is None: continue
             x, y = p
             if 0 <= x < W and 0 <= y < H: pts.append((x, y))
-
-    # Detectar interseções de borda MUITO conservadoras
-    # Só adicionar pontos que estão exatamente na borda da imagem
-    for lv in vertical:
-        rho_v, theta_v = lv
-        # Interseção com borda esquerda (x=0)
-        if abs(theta_v) > 0.1:  # Não vertical perfeita
-            y_left = int((rho_v - 0 * np.cos(theta_v)) / np.sin(theta_v))
-            if 0 <= y_left < H:
-                # Verificar se há linha horizontal próxima
-                for lh in horizontal:
-                    rho_h, theta_h = lh
-                    if abs(theta_h - np.pi/2) < 0.1:  # Horizontal
-                        dist = abs(y_left - rho_h / np.sin(theta_h))
-                        if dist < 3:  # Muito próximo
-                            pts.append((0, y_left))
-                            break
-
-        # Interseção com borda direita (x=W-1)
-        if abs(theta_v) > 0.1:
-            y_right = int((rho_v - (W-1) * np.cos(theta_v)) / np.sin(theta_v))
-            if 0 <= y_right < H:
-                for lh in horizontal:
-                    rho_h, theta_h = lh
-                    if abs(theta_h - np.pi/2) < 0.1:
-                        dist = abs(y_right - rho_h / np.sin(theta_h))
-                        if dist < 3:
-                            pts.append((W-1, y_right))
-                            break
-
     pts = _dedup_points(pts, radius=25)
     return pts, (vertical + horizontal)
 
@@ -515,14 +483,12 @@ def go_to_next_intersection(arduino, camera):
 
             # Encontrar a interseção alvo (a mais próxima, com maior 'y')
             intersections, detected_lines = detect_intersections(mask)
-            print(f"   🔍 Detectadas {len(intersections)} interseções: {intersections}")
             target_intersection = None
             target_y = -1
             if intersections:
                 intersections.sort(key=lambda p: p[1], reverse=True)  # Ordena por Y decrescente
                 target_intersection = intersections[0]
                 target_y = target_intersection[1]
-                print(f"   🎯 Target: {target_intersection} (Y={target_y})")
 
             h, w = img.shape[:2]
             Y_START_SLOWING = h * Y_START_SLOWING_FRAC
@@ -531,8 +497,6 @@ def go_to_next_intersection(arduino, camera):
             # Debug: mostrar valores importantes
             if target_y != -1:
                 print(f"   🎯 Interseção Y={target_y:.0f}, Y_TARGET_STOP={Y_TARGET_STOP:.0f}, State={state}")
-            else:
-                print(f"   ❌ Nenhuma interseção detectada, State={state}")
 
             # --- Máquina de Estados de Controle (do robot_pedro.py) ---
 
