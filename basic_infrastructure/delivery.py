@@ -523,6 +523,7 @@ def go_to_next_intersection(arduino, camera):
 
             # 1. Transições de Estado
             if state == 'FOLLOW':
+                print(f"   🔄 State machine: conf={conf}, target_y={target_y}, Y_START_SLOWING={Y_START_SLOWING:.0f}")
                 if conf == 0:
                     lost_frames += 1
                     if lost_frames >= LOST_MAX_FRAMES:
@@ -536,6 +537,7 @@ def go_to_next_intersection(arduino, camera):
                         state = 'APPROACHING'
                         last_known_y = target_y
                     else:
+                        print(f"   ⏳ Aguardando aproximação: target_y={target_y:.0f} <= Y_START_SLOWING={Y_START_SLOWING:.0f}")
                         last_err = erro
                         last_known_y = -1.0
 
