@@ -14,7 +14,7 @@ SERVER_IP = "192.168.137.176"  # IP do computador que roda o server.py
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
-THRESHOLD_VALUE = 150  # Ajustado para detectar linhas BRANCAS adequadamente
+THRESHOLD_VALUE = 180  # Mesmo valor do robot_pedro.py
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
@@ -37,7 +37,7 @@ ROI_BOTTOM_FRAC = 0.55
 MIN_AREA_FRAC   = 0.006  # Reduzido para detectar linhas válidas
 MAX_AREA_FRAC   = 0.25
 ASPECT_MIN      = 2.5    # Reduzido para ser menos rigoroso
-LINE_POLARITY   = 'white'               # Forçado para branco (linhas sempre são brancas)
+LINE_POLARITY   = 'auto'                # Mesmo do robot_pedro.py (permite fallback)
 USE_ADAPTIVE    = False
 
 PORTA_SERIAL = '/dev/ttyACM0'
@@ -100,26 +100,13 @@ def build_binary_mask(image_bgr):
     h, w = image_bgr.shape[:2]
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
 
-    # Blur mais forte para reduzir ruído do chão
-    gray = cv2.GaussianBlur(gray, (7, 7), 0)
-
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
     _, mask = cv2.threshold(gray, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
 
-    # Filtros morfológicos mais agressivos
-    k_small = np.ones((3, 3), np.uint8)  # Kernel menor para detalhes finos
-    k_large = np.ones((5, 5), np.uint8)  # Kernel maior para ruído grosso
-
-    # Erosão para remover pequenos ruídos
-    mask = cv2.erode(mask, k_small, iterations=1)
-
-    # Abertura para remover ruído e conectar componentes
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k_large, iterations=2)
-
-    # Fechamento para preencher pequenos buracos
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k_large, iterations=1)
-
-    # Dilatação final para restaurar tamanho das linhas reais
-    mask = cv2.dilate(mask, k_small, iterations=1)
+    # Mesmas operações morfológicas do robot_pedro.py
+    k = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)
 
     # Remove parte superior da imagem (céu/ruído)
     top = int(h * ROI_CROP_FRAC)
@@ -228,11 +215,9 @@ def processar_imagem(imagem):
         cx_full, cy_full = cx, cy + y0
         return best, cx_full, cy_full, 1
 
+    # Seleção por polaridade (igual ao robot_pedro.py)
     if LINE_POLARITY == 'white':
         c, cx_full, cy_full, conf = find_valid_contour(th_white)
-        # Debug: mostra se detectou linha branca
-        if conf == 0:
-            print("   ⚠️  Nenhuma linha BRANCA detectada")
     elif LINE_POLARITY == 'black':
         c, cx_full, cy_full, conf = find_valid_contour(th_black)
     else:
@@ -502,22 +487,16 @@ def go_to_next_intersection(arduino, camera):
                 else:
                     lost_frames = 0
 
+                    # Atualiza a posição conhecida da interseção
                     if target_y != -1:
                          last_known_y = target_y
 
-                         # GATILHO 1: Atingimos o alvo de Y?
+                         # GATILHO: Atingimos o alvo de Y?
                          if last_known_y >= Y_TARGET_STOP:
                             print("   🛑 Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
                             state = 'STOPPING'
                             action_start_time = time.time()
-                            last_known_y = -1.0
-
-                    # GATILHO 2: A interseção DESAPARECEU mas ainda vemos a linha?
-                    elif target_y == -1 and conf == 1:
-                        print("   ✅ Interseção passou do FoV. 'Andando mais um pouco'...")
-                        state = 'STOPPING'
-                        action_start_time = time.time()
-                        last_known_y = -1.0
+                            last_known_y = -1.0 # Reseta para a próxima
 
             elif state == 'STOPPING':
                 if (time.time() - action_start_time) > CRAWL_DURATION_S:
