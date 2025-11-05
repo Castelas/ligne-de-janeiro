@@ -798,16 +798,10 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         print(f"🎯 Já estamos no destino ({start_node[0]},{start_node[1]})!")
         return cur_node,cur_dir,True
 
-    # SEMPRE vai para a primeira interseção do caminho para garantir posicionamento
-    first_target = path[0]
-    print(f"🎯 Confirmando posição na interseção ({first_target[0]},{first_target[1]})")
-
-    # Tenta ir para a primeira interseção (deve ser rápida se já estiver lá)
-    if not go_to_next_intersection(arduino, camera):
-        print(f"   ❌ Falha ao confirmar posição em ({first_target[0]},{first_target[1]})")
-        return cur_node,cur_dir,False
-    print(f"   ✅ Posição confirmada em ({first_target[0]},{first_target[1]})")
-    cur_node = first_target
+    # O robô JÁ ESTÁ na primeira interseção após leave_square_to_best_corner
+    # Não precisamos ir para lugar nenhum, apenas confirmar que estamos na posição certa
+    print(f"🚶🏁 Já estamos na primeira interseção {start_node}")
+    cur_node = start_node
     print()
 
     # Executa cada passo do caminho (começando do segundo nó)
@@ -1093,12 +1087,13 @@ def main():
                         send_basic_frame(camera, "ERRO: Falha na saida")
                         return
 
-                    print(f"📍 Após saída: Posição {start_node}, Direção {dir_name(cur_dir)}")
-                    send_basic_frame(camera, f"Posicao: {start_node}")
                     print("🔄 Mudando para NAVIGATING")
                     auto_state = "NAVIGATING"
 
                 elif auto_state == "NAVIGATING":
+                    print(f"🔄 Iniciando navegação do caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
+                    send_basic_frame(camera, f"Navegando: {' -> '.join([f'({x},{y})' for x,y in path])}")
+
                     _, cur_dir, ok = follow_path(arduino, start_node, cur_dir, path, camera, arrival_dir)
                     if not ok:
                         print("❌ Falha na navegação.")
