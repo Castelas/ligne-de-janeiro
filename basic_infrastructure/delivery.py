@@ -481,15 +481,32 @@ def go_to_next_intersection(arduino, camera):
             else:
                 print(f"   ✅ Linha OK: erro={erro:.1f}, conf={conf}")
 
-            # Encontrar a interseção alvo (a mais próxima, com maior 'y')
+            # Encontrar a interseção alvo (filtrar bordas, focar no centro)
             intersections, detected_lines = detect_intersections(mask)
             target_intersection = None
             target_y = -1
+
             if intersections:
-                intersections.sort(key=lambda p: p[1], reverse=True)  # Ordena por Y decrescente
-                target_intersection = intersections[0]
-                target_y = target_intersection[1]
-                print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y})")
+                h, w = img.shape[:2]
+                # Filtrar interseções muito próximas das bordas (provavelmente falsas)
+                border_margin = int(w * 0.15)  # 15% das bordas
+                filtered_intersections = [
+                    inter for inter in intersections
+                    if border_margin <= inter[0] <= w - border_margin
+                ]
+
+                if filtered_intersections:
+                    filtered_intersections.sort(key=lambda p: p[1], reverse=True)  # Ordena por Y decrescente
+                    target_intersection = filtered_intersections[0]
+                    target_y = target_intersection[1]
+                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y}) - FILTRADA")
+                else:
+                    # Fallback: usar interseção mais próxima do centro se nenhuma no centro
+                    center_x = w // 2
+                    intersections.sort(key=lambda p: (abs(p[0] - center_x), -p[1]))  # Centro X, depois Y alto
+                    target_intersection = intersections[0]
+                    target_y = target_intersection[1]
+                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y}) - FALLBACK")
 
             h, w = img.shape[:2]
             Y_START_SLOWING = h * Y_START_SLOWING_FRAC
