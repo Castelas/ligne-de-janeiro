@@ -24,8 +24,8 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 100
-VELOCIDADE_CURVA = 100
+VELOCIDADE_BASE = 110
+VELOCIDADE_CURVA = 110
 Kp = 0.75             # Ganho do controlador P
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
@@ -45,7 +45,7 @@ BAUDRATE = 115200
 
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
-START_SPEED  = 100        # reta cega
+START_SPEED  = 110        # reta cega
 TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
