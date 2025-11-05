@@ -505,27 +505,53 @@ def dir_name(d):
     return {0:'Norte', 1:'Leste', 2:'Sul', 3:'Oeste'}[d]
 
 def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
+    """
+    Sai do quadrado usando a orientação declarada (assumida correta).
+    """
+    print(f"🚶 Saindo do quadrado ({sx},{sy})")
+    print(f"   Orientação: {dir_name(cur_dir)}")
+    print(f"   Destino: {target}")
+
     left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
-    dl = manhattan(left_corner, target); dr = manhattan(right_corner, target)
-    side_hint = 'L' if dl<=dr else 'R'
+    dl = manhattan(left_corner, target)
+    dr = manhattan(right_corner, target)
+    side_hint = 'L' if dl <= dr else 'R'
     chosen = left_corner if side_hint=='L' else right_corner
-    print(f"🚶 Saindo do quadrado ({sx},{sy}) em direção ao canto {chosen}")
-    print(f"   Direção atual: {dir_name(cur_dir)}, virada sugerida: {'Esquerda' if side_hint=='L' else 'Direita'}")
-    print(f"   Distância Manhattan: {chosen}→{target} = {manhattan(chosen, target)}")
+
+    print(f"   Escolhendo canto {chosen} (virada: {'esquerda' if side_hint=='L' else 'direita'})")
+    print(f"   Distância Manhattan: {dl} vs {dr}")
 
     # Reta cega
     if not straight_until_seen_then_lost(arduino, camera):
-        print("✗ Falha na reta inicial."); return None,None,False
+        print("✗ Falha na reta inicial.")
+        return None, None, False
+
     # Pivô: girar até ver + alinhar andando
     if not spin_in_place_until_seen(arduino, camera, side_hint=side_hint):
-        print("✗ Falha no pivô (não viu linha)."); return None,None,False
+        print("✗ Falha no pivô (não viu linha).")
+        return None, None, False
+
     if not forward_align_on_line(arduino, camera):
-        print("✗ Falha no alinhamento após pivô."); return None,None,False
+        print("✗ Falha no alinhamento após pivô.")
+        return None, None, False
+
     # Segue para 1ª intersecção
     if not go_to_next_intersection(arduino, camera):
-        print("✗ Falha ao alcançar a intersecção."); return None,None,False
+        print("✗ Falha ao alcançar a intersecção.")
+        return None, None, False
 
-    new_dir = (cur_dir - 1)%4 if side_hint=='L' else (cur_dir + 1)%4
+    # ⚠️  IMPORTANTE: Executa o giro final para a direção correta
+    new_dir = (cur_dir - 1) % 4 if side_hint == 'L' else (cur_dir + 1) % 4
+    print(f"🔄 Executando giro final: {dir_name(cur_dir)} → {dir_name(new_dir)}")
+
+    # Para antes de girar
+    drive_cap(arduino, 0, 0); time.sleep(0.2)
+
+    # Calcula e executa o giro
+    rel_turn = relative_turn(cur_dir, new_dir)
+    exec_turn(arduino, rel_turn)
+
+    print(f"✅ Giro final executado - Agora virado para {dir_name(new_dir)}")
     return chosen, new_dir, True
 
 def exec_turn(arduino, rel):
@@ -632,6 +658,9 @@ def main():
 
         start_node, cur_dir, ok = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
         if not ok: print("❌ Falha na saída."); return
+
+        print(f"📍 Após saída: Posição {start_node}, Direção {dir_name(cur_dir)}")
+        print()
 
         print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
         path=a_star(start_node, target, GRID_NODES)
