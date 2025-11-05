@@ -72,8 +72,8 @@ STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
 ROW_BAND_BOTTOM_FRAC    = 0.85
-ROW_PEAK_FRAC_THR       = 0.020
-LOSE_FRAMES_START       = 3
+ROW_PEAK_FRAC_THR       = 0.030
+LOSE_FRAMES_START       = 5
 START_TIMEOUT_S         = 6.0
 
 # ============================ VISÃO (robot2) ============================
@@ -302,7 +302,7 @@ def straight_until_seen_then_lost(arduino, camera):
                     lost+=1
                     if lost>=LOSE_FRAMES_START:
                         # Após perder a linha, anda um pouco mais para frente
-                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.2)  # Menos tempo
+                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.5)  # Tempo aumentado
                         drive_cap(arduino,0,0); return True
             if (time.time()-t0)>START_TIMEOUT_S:
                 drive_cap(arduino,0,0); return False
