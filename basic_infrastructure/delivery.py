@@ -55,8 +55,8 @@ ALIGN_TOL_PIX   = 8       # centralização final
 ALIGN_STABLE    = 4       # frames estáveis
 ALIGN_TIMEOUT   = 2.0     # tempo máx. alinhando (s)
 
-# Intersecção (mais tolerante)
-INT_BAND_Y0_FRAC        = 0.45
+# Intersecção (mais tolerante - banda mais baixa para detectar interseções mais cedo)
+INT_BAND_Y0_FRAC        = 0.25
 INT_BAND_Y1_FRAC        = 0.98
 INT_STABLE_FR           = 2
 INT_MATCH_RADIUS        = 24
@@ -329,11 +329,28 @@ def forward_align_on_line(arduino, camera):
         raw.truncate(0)
 
 def best_intersection_in_band(pts, h, band_y0, band_y1):
-    cand=None; best_y=-1
+    """Escolhe a melhor interseção: primeiro tenta na banda, senão aceita fora da banda"""
+    # Primeiro tenta encontrar na banda principal
+    cand_in_band = None
+    best_y_in_band = -1
+
+    cand_out_band = None
+    best_y_out_band = h  # Começa com o maior y possível (mais longe)
+
     for (x,y) in pts:
-        if band_y0<=y<=band_y1 and y>best_y:
-            best_y=y; cand=(x,y)
-    return cand
+        if band_y0 <= y <= band_y1:
+            # Dentro da banda - escolhe a mais próxima (maior y)
+            if y > best_y_in_band:
+                best_y_in_band = y
+                cand_in_band = (x,y)
+        else:
+            # Fora da banda - escolhe a mais próxima (menor y)
+            if y < best_y_out_band:
+                best_y_out_band = y
+                cand_out_band = (x,y)
+
+    # Prioriza interseções dentro da banda, mas aceita fora se necessário
+    return cand_in_band if cand_in_band is not None else cand_out_band
 
 def go_to_next_intersection(arduino, camera):
     # Setup ZMQ para visualização (igual ao robot_new.py)
@@ -562,6 +579,10 @@ def follow_path(arduino, start_node, start_dir, path, camera):
         turn_names = {'F':'Frente', 'L':'Esquerda (90°)', 'R':'Direita (90°)', 'U':'Meia-volta (180°)'}
         print(f"🔄 Intersecção ({cur_node[0]},{cur_node[1]}): {dir_name(cur_dir)} → {turn_names[rel]} → {dir_name(want)}")
         print(f"   Indo para ({nxt[0]},{nxt[1]})")
+
+        # ⚠️  IMPORTANTE: Para completamente antes de virar
+        drive_cap(arduino, 0, 0); time.sleep(0.2)
+        print(f"   🛑 Parado para executar giro")
 
         exec_turn(arduino, rel); cur_dir=want
         print(f"   ✅ Giro executado")
