@@ -454,7 +454,6 @@ void  ENCODER_DUAL_code() {
 }
 
 
-// renvoie le temps courant et la position d'un encodeur
 void  ENCODERS_TIME_code() {
   delay(1); // indispensable et pas trop long sinon le caractère suivant n'est pas arrivé
   c=GetChar(0);
@@ -629,18 +628,26 @@ inline void task3() {
 
 inline void task4() {
   if (((int)millis()-tim4)>0)  // si on a atteint le temps programmé
-  { 
-    // Détection d'obstacle par ultrason (distance < 15 cm)
-    long d = sr04.Distance();
-    if ((d > 0) && (d < 15)) {
-      obst=true ;                   // obstacle détecté
-      nivM1=0 ; nivM2=0 ;
-      set_motor1(0) ;
-      set_motor2(0) ;
-      task3on = false ;        // arret du démarrage progressif
-      Serial.println("OB");   // Envoie "OB" au Raspberry Pi
+  {
+    long d = sr04.Distance(); // distance en cm
+    // envia "OB" apenas na transição false->true quando distância < 10 cm
+    if ((d > 0) && (d < 10)) {
+      if (!obst) {
+        obst = true;
+        // parar motores imediatamente
+        nivM1 = 0; nivM2 = 0;
+        set_motor1(0);
+        set_motor2(0);
+        task3on = false;        // arret du démarrage progressif
+        Serial.println("OB");   // notifica Raspberry apenas uma vez (transição)
+      }
+    } else {
+      // limpa flag quando retorna seguro (>= 10 cm) para permitir nova notificação
+      if (obst && d >= 10) {
+        obst = false;
+      }
     }
-    tim4=tim4+del4 ;
+    tim4 = tim4 + del4;
   }
 }
 
