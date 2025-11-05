@@ -502,12 +502,12 @@ def go_to_next_intersection(arduino, camera):
                             action_start_time = time.time()
                             last_known_y = -1.0 # Reseta para a próxima
 
-                        # GATILHO 2: Interseção desapareceu completamente (backup)
-                        elif target_y == -1 and last_known_y > Y_START_SLOWING:
-                            print(f"   🛑 Interseção desapareceu (era Y={last_known_y:.0f}). Parando...")
-                            state = 'STOPPING'
-                            action_start_time = time.time()
-                            last_known_y = -1.0 # Reseta para a próxima
+                    # GATILHO 2: Interseção desapareceu completamente (backup)
+                    if target_y == -1 and last_known_y > Y_START_SLOWING:
+                        print(f"   🛑 Interseção desapareceu (era Y={last_known_y:.0f}). Parando...")
+                        state = 'STOPPING'
+                        action_start_time = time.time()
+                        last_known_y = -1.0 # Reseta para a próxima
 
             elif state == 'STOPPING':
                 if (time.time() - action_start_time) > CRAWL_DURATION_S:
@@ -737,7 +737,26 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return
 
     # Calcula e executa o giro
     rel_turn = relative_turn(cur_dir, new_dir)
-    exec_turn(arduino, rel_turn)
+
+    # Executa a ação baseada no giro relativo (lógica do robot_pedro.py)
+    if rel_turn == 'F':
+        # GO_STRAIGHT: Seguir reto (não deveria acontecer aqui)
+        pass
+    elif rel_turn == 'L':
+        # TURN_LEFT: Virar 90° esquerda
+        drive_cap(arduino, -TURN_SPEED, TURN_SPEED)
+        time.sleep(TURN_DURATION_S)
+        drive_cap(arduino, 0, 0); time.sleep(0.3)
+    elif rel_turn == 'R':
+        # TURN_RIGHT: Virar 90° direita
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
+        time.sleep(TURN_DURATION_S)
+        drive_cap(arduino, 0, 0); time.sleep(0.3)
+    elif rel_turn == 'U':
+        # U-turn: Meia-volta (180°)
+        drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
+        time.sleep(2.5)  # U-turn leva mais tempo
+        drive_cap(arduino, 0, 0); time.sleep(0.4)
 
     print(f"✅ Giro final executado - Agora virado para {dir_name(new_dir)}")
 
