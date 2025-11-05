@@ -64,8 +64,8 @@ Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70
 Y_TARGET_STOP_FRAC = 0.95    # Aumentado para 95% - passa mais pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
-TURN_SPEED = 200             # Velocidade para girar (90 graus) - aumentado
-TURN_DURATION_S = 0.7        # Duração (segundos) para o giro - reduzido para evitar overshoot
+TURN_SPEED = 150             # Velocidade para girar (90 graus) - reduzido para controlar
+TURN_DURATION_S = 0.5        # Duração (segundos) para o giro - ainda mais reduzido
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
@@ -741,54 +741,16 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return
         print("✗ Falha ao alcançar a intersecção.")
         return None, None, False
 
-    # ⚠️  IMPORTANTE: Calcula a direção correta baseada na orientação e lado escolhido
-    if cur_dir == 0:  # Norte
-        new_dir = 0 if side_hint == 'L' else 1  # Esquerda: reto (Norte), Direita: direita (Leste)
-    elif cur_dir == 1:  # Leste
-        new_dir = 0 if side_hint == 'L' else 1  # Esquerda: esquerda (Norte), Direita: reto (Leste)
-    elif cur_dir == 2:  # Sul
-        new_dir = 3 if side_hint == 'L' else 1  # Esquerda: direita (Oeste), Direita: esquerda (Leste)
-    elif cur_dir == 3:  # Oeste
-        new_dir = 3 if side_hint == 'L' else 0  # Esquerda: reto (Oeste), Direita: direita (Norte)
-
-    print(f"🔄 Giro inicial: {'esquerda' if side_hint=='L' else 'direita'}")
-
-    # Para antes de girar
-    drive_cap(arduino, 0, 0); time.sleep(0.2)
-
-    # Calcula e executa o giro
-    rel_turn = relative_turn(cur_dir, new_dir)
-
-    # Executa a ação baseada no giro relativo (lógica do robot_pedro.py)
-    if rel_turn == 'F':
-        # GO_STRAIGHT: Seguir reto (não deveria acontecer aqui)
-        pass
-    elif rel_turn == 'L':
-        # TURN_LEFT: Virar 90° esquerda
-        drive_cap(arduino, -TURN_SPEED, TURN_SPEED)
-        time.sleep(TURN_DURATION_S)
-        drive_cap(arduino, 0, 0); time.sleep(0.3)
-    elif rel_turn == 'R':
-        # TURN_RIGHT: Virar 90° direita
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
-        time.sleep(TURN_DURATION_S)
-        drive_cap(arduino, 0, 0); time.sleep(0.3)
-    elif rel_turn == 'U':
-        # U-turn: Meia-volta (180°)
-        drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
-        time.sleep(2.5)  # U-turn leva mais tempo
-        drive_cap(arduino, 0, 0); time.sleep(0.4)
-
-    print(f"✅ Giro inicial concluído")
+    # O pivot já deixou o robô na direção correta, não precisa de giro adicional
+    print(f"✅ Pivot concluído - pronto para seguir")
 
     if return_arrival_dir:
-        # Calcula de qual direção o robô chega na interseção
-        # Como virou para new_dir e está indo para chosen, a direção de chegada é new_dir
-        arrival_dir = new_dir
+        # Após o pivot, o robô chega na interseção vindo da direção de orientação
+        arrival_dir = cur_dir
         print(f"📍 Chegando na interseção {chosen} vindo do {dir_name(arrival_dir)}")
-        return chosen, new_dir, True, arrival_dir
+        return chosen, cur_dir, True, arrival_dir
     else:
-        return chosen, new_dir, True
+        return chosen, cur_dir, True
 
 # exec_turn removida - ações executadas diretamente em follow_path usando lógica do robot_pedro.py
 
