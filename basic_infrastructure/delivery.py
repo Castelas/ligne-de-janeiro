@@ -83,6 +83,12 @@ def _angle_diff(a, b):
 
 def _deg(x): return np.deg2rad(x)
 
+def distance_to_line(point, line):
+    """Calcula a distância de um ponto (x,y) a uma linha (rho, theta)"""
+    rho, theta = line
+    x, y = point
+    return abs(x * np.cos(theta) + y * np.sin(theta) - rho)
+
 def _dedup_points(points, radius=25):
     if not points: return []
     used = [False]*len(points); out = []
@@ -158,12 +164,45 @@ def detect_intersections(mask):
     horizontal = [l for l in lines if _angle_diff(l[1], np.pi/2) < _deg(15)]
     H, W = mask.shape[:2]
     pts = []
+
+    # Detectar interseções completas (-|-)
     for lv in vertical:
         for lh in horizontal:
             p = line_intersection(lv, lh)
             if p is None: continue
             x, y = p
             if 0 <= x < W and 0 <= y < H: pts.append((x, y))
+
+    # Detectar interseções de borda (-|)
+    # Quando uma linha termina próximo a outra linha perpendicular
+    for seg in segments:
+        x1, y1, x2, y2 = seg
+        # Verificar se este segmento termina próximo a uma linha perpendicular
+        is_vertical_seg = abs(x2 - x1) < abs(y2 - y1)  # Segmento mais vertical
+        is_horizontal_seg = abs(y2 - y1) < abs(x2 - x1)  # Segmento mais horizontal
+
+        if is_vertical_seg:
+            # Segmento vertical terminando próximo a linha horizontal
+            for lh in horizontal:
+                # Verificar se a extremidade inferior do segmento vertical
+                # está próximo da linha horizontal
+                end_y = max(y1, y2)  # Extremidade inferior
+                end_x = x1 if y1 > y2 else x2
+                dist = distance_to_line((end_x, end_y), lh)
+                if dist < 15:  # 15 pixels de tolerância
+                    pts.append((end_x, end_y))
+
+        elif is_horizontal_seg:
+            # Segmento horizontal terminando próximo a linha vertical
+            for lv in vertical:
+                # Verificar se a extremidade direita do segmento horizontal
+                # está próximo da linha vertical
+                end_x = max(x1, x2)  # Extremidade direita
+                end_y = y1 if x1 > x2 else y2
+                dist = distance_to_line((end_x, end_y), lv)
+                if dist < 15:  # 15 pixels de tolerância
+                    pts.append((end_x, end_y))
+
     pts = _dedup_points(pts, radius=25)
     return pts, (vertical + horizontal)
 
