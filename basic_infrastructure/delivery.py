@@ -513,6 +513,10 @@ def exec_turn(arduino, rel):
         drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(1.50); drive_cap(arduino,0,0); time.sleep(0.10)
 
 def follow_path(arduino, start_node, start_dir, path, camera):
+    """
+    O robô JÁ ESTÁ na primeira interseção (start_node) após leave_square_to_best_corner.
+    Esta função executa o resto do caminho A*.
+    """
     cur_node=start_node; cur_dir=start_dir
     drive_cap(arduino,0,0); time.sleep(0.1)
 
@@ -523,6 +527,12 @@ def follow_path(arduino, start_node, start_dir, path, camera):
     print(f"   Total: {len(path)-1} movimentos")
     print()
 
+    # Verifica se já estamos no destino
+    if len(path) == 1 and path[0] == start_node:
+        print(f"🎯 Já estamos no destino ({start_node[0]},{start_node[1]})!")
+        return cur_node,cur_dir,True
+
+    # Executa cada passo do caminho (começando do segundo nó)
     for i in range(1,len(path)):
         nxt=path[i]
         want=orientation_of_step(cur_node, nxt)
