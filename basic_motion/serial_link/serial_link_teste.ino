@@ -76,7 +76,7 @@ long int v2,lv2 ;
 long int v3,lv3 ;
 int vitesse1,vitesse2 ;
 
-//SR04 sr04 = SR04(ECHO_PIN,TRIG_PIN);  // gestion du capteur ultrasonore
+SR04 sr04 = SR04(ECHO_PIN,TRIG_PIN);  // gestion du capteur ultrasonore
 long a;
 int v;
 
