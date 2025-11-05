@@ -286,7 +286,7 @@ def main():
     # --- Arduino ---
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
-        arduino.write(b'\n')
+        arduino.write(b'A10\n')
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
     except Exception:
         pass
