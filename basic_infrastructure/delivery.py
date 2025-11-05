@@ -897,7 +897,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
     print()
 
     # Verifica se já estamos no destino
-    if start_node == target:
+    if start_node == path[-1]:
         print(f"🎯 Já estamos no destino ({start_node[0]},{start_node[1]})!")
         return cur_node,cur_dir,True
 
