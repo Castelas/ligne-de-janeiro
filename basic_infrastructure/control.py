@@ -1,59 +1,55 @@
-#########################################################################
-# CENTRALESUPELEC : ST5 Integration teaching
-#
-# Human-machine interface and control client
-#   This program is used as human-machine interface
-#   by sending messages to the robots via the server
-#
-#########################################################################
-# Authors : Philippe Benabes & Koen de Turck
-# Modifications by Morgan Roger & Erwan Libessart
-# TBD : message content could explicitly include origin 
-#########################################################################
-
+# control.py (versão final)
+import cv2
 import zmq
+import base64
+import numpy as np
 
-server_ip = "192.168.137.1"
-verbose_mode = False
-key_to_exit_program = b'q'
-
+# --- PARÂMETROS ---
+SERVER_IP = "192.168.137.49"  # <--- MUDE PARA O IP DO SEU SERVIDOR
+ROBOT_IP = "192.168.137.69"   # <--- MUDE PARA O IP DO SEU ROBÔ (RASPBERRY PI)
+# --- FIM DOS PARÂMETROS ---
 
 def main():
-    server_socket = connect_to(server_ip)
-    register_msg = {"cmd": "log"}       # add header indicating origin ?
-    send_message(server_socket, register_msg)
+    context = zmq.Context()
+    # Socket SUB para vídeo
+    sub_socket = context.socket(zmq.SUB)
+    sub_socket.connect(f"tcp://{ROBOT_IP}:5555")
+    sub_socket.setsockopt_string(zmq.SUBSCRIBE, '')
+    # Socket REQ para comandos
+    req_socket = context.socket(zmq.REQ)
+    req_socket.connect(f"tcp://{SERVER_IP}:5005")
     
-
-    print("Welcome to control.py")
-    print("Press enter to validate your command and send it to the server")
-    cmd_char = ''
-    while cmd_char != 'q':
-        input_str = input("Enter your command (press 'q' to exit): ")
-        if input_str != '':
-            cmd_char = input_str[0]
-            if cmd_char != 'q':
-                msg = {"cmd": "key", "key": cmd_char}       # add header indicating origin ?
-                send_message(server_socket, msg)
-
-
-def connect_to(ip):
-    ctx = zmq.Context()
-    sock = ctx.socket(zmq.REQ)
-    address = "tcp://{}:5005".format(ip)
-    sock.connect(address)
+    print("Controle iniciado.")
+    print("Use W,A,S,D para controle manual.")
+    print("Pressione 'm' para alternar entre modo MANUAL e AUTOMATICO.")
+    print("Pressione 'q' para sair.")
     
-    return sock
+    try:
+        while True:
+            # Recebe e exibe o quadro de vídeo
+            frame_b64 = sub_socket.recv()
+            img_buffer = base64.b64decode(frame_b64)
+            frame = cv2.imdecode(np.frombuffer(img_buffer, np.uint8), cv2.IMREAD_COLOR)
+            cv2.imshow("Controle do Robo", frame)
 
-def send_message(sock, content):
-    msg = {"from": "control"}       # header indicating origin
-    msg.update(content)
-    sock.send_pyobj(msg)
-    reply = sock.recv_pyobj()
-    if verbose_mode:
-        print(reply)
-    
-    return reply
-
+            # Verifica se uma tecla foi pressionada
+            key = cv2.waitKey(1) & 0xFF
+            
+            if key != 255: # Se uma tecla foi pressionada
+                char_key = chr(key)
+                
+                if char_key == 'q':
+                    break # Sai do loop
+                
+                # Envia qualquer tecla pressionada (w,a,s,d,m, etc.) para o servidor
+                msg = {"from": "control", "cmd": "key", "key": char_key}
+                req_socket.send_pyobj(msg)
+                req_socket.recv_pyobj() # Espera confirmação
+                
+    finally:
+        print("Encerrando...")
+        cv2.destroyAllWindows()
+        sub_socket.close(); req_socket.close(); context.term()
 
 if __name__ == "__main__":
     main()
