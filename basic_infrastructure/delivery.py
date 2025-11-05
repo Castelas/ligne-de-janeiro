@@ -34,9 +34,9 @@ SEARCH_SPEED    = 120
 LOST_MAX_FRAMES = 5
 DEAD_BAND       = 3
 ROI_BOTTOM_FRAC = 0.55
-MIN_AREA_FRAC   = 0.006  # Reduzido para detectar linhas válidas
-MAX_AREA_FRAC   = 0.25
-ASPECT_MIN      = 2.5    # Reduzido para ser menos rigoroso
+MIN_AREA_FRAC   = 0.003  # Ainda mais reduzido para detectar linhas
+MAX_AREA_FRAC   = 0.3    # Um pouco mais tolerante
+ASPECT_MIN      = 2.0    # Ainda menos rigoroso
 LINE_POLARITY   = 'white'               # Forçado para branco novamente
 USE_ADAPTIVE    = False
 
@@ -449,6 +449,12 @@ def go_to_next_intersection(arduino, camera):
             img = f.array
             mask = build_binary_mask(img)
             img, erro, conf = processar_imagem(img)
+
+            # Debug: verificar se está detectando linha
+            if conf == 0:
+                print(f"   ⚠️  Linha perdida! erro={erro}, conf={conf}")
+            else:
+                print(f"   ✅ Linha OK: erro={erro:.1f}, conf={conf}")
 
             # Encontrar a interseção alvo (a mais próxima, com maior 'y')
             intersections, detected_lines = detect_intersections(mask)
