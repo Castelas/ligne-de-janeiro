@@ -24,7 +24,7 @@ THRESHOLD_VALUE = 180
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
-ROI_CROP_FRAC       = 0.20  # zera 20% do topo para reduzir ruído no overlay
+ROI_CROP_FRAC       = 0.10  # zera 20% do topo para reduzir ruído no overlay
 RHO_MERGE           = 40
 THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
@@ -52,10 +52,10 @@ LINE_POLARITY   = 'auto'                # 'white', 'black' ou 'auto'
 USE_ADAPTIVE    = False                 # threshold adaptativo desligado por padrão
 
 # NOVOS PARÂMETROS PARA INTERSEÇÃO
-Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
+Y_START_SLOWING_FRAC = 0.50  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 0.95    # Ponto de parada (para iniciar o "crawl") a 95% da altura
-CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
+CRAWL_SPEED = 80             # Velocidade baixa para o "anda mais um pouco"
+CRAWL_DURATION_S = 0.25       # Duração (segundos) do "anda mais um pouco"
 
 # NOVOS PARÂMETROS PARA AÇÕES NA INTERSEÇÃO
 TURN_SPEED = 130             # Velocidade para girar (90 graus)
