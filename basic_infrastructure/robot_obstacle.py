@@ -11,8 +11,8 @@ import serial
 
 # ============================= PARÂMETROS GERAIS =============================
 # --- REDE ---
-SERVER_IP = "192.168.137.78"     # <--- COLOQUE o IP do servidor (control.py)
-MY_ID     = "bot001"             # identificador do robô na rede
+SERVER_IP = "192.168.137.176"     # <--- COLOQUE o IP do servidor (control.py)
+MY_ID     = "bot001"              # identificador do robô na rede
 
 # --- VISÃO ---
 IMG_WIDTH, IMG_HEIGHT = 320, 240
@@ -55,7 +55,7 @@ BAUDRATE = 115200
 
 # ======================== OBSTACLE/ULTRASSOM CONFIG ==========================
 REVERSE_TIME_S = 1.5     # tempo de ré quando obstáculo detectado
-SPIN_TIME_S    = 1.6     # tempo aproximado para ~360° (ajuste no seu robô)
+SPIN_TIME_S    = 0.8     # tempo aproximado para ~180° (ajuste no seu robô)
 ULTRA_THRESHOLD_CM = 25  # distância para considerar obstáculo
 
 # ============================ AUXILIARES VISUAIS ============================
@@ -252,33 +252,55 @@ def enviar_comando_motor_serial(arduino, v_esq, v_dir):
     arduino.write(comando.encode('utf-8'))
 
 def ler_obstaculo_serial(arduino):
-    """Retorna True se detectarmos 'OB' no feedback da serial ou distância < limiar via 'S'."""
-    # tentar capturar resposta curta imediatamente
+    """True se OB (IR) aparecer no feedback ou se S < ULTRA_THRESHOLD_CM (ultrassom)."""
+    import re
     try:
+        # 1) tentar OB (apenas útil se estiver em A11/A12 e IR ativo)
         if arduino.in_waiting:
             line = arduino.readline().decode('utf-8', errors='ignore').strip()
             if 'OB' in line:
                 return True
     except Exception:
         pass
-    # fallback: perguntar distância ao firmware (se suportado)
+
+    # 2) pedir distância do ultrassom de forma robusta
     try:
+        # limpa lixo antigo
+        try:
+            arduino.reset_input_buffer()
+        except Exception:
+            pass
+
+        # envia requisição
         arduino.write(b'S\n')
-        dist_line = arduino.readline().decode('utf-8', errors='ignore').strip()
-        if dist_line.isdigit():
-            d = int(dist_line)
-            if d > 0 and d < ULTRA_THRESHOLD_CM:
-                return True
+
+        # tenta ler algumas vezes (p.ex. até 3 linhas ou ~150 ms)
+        deadline = time.time() + 0.15
+        dist_val = None
+        while time.time() < deadline:
+            line = arduino.readline().decode('utf-8', errors='ignore').strip()
+            if not line:
+                continue
+            # aceita "13", "13\r", "13 cm", "dist=13", etc.
+            m = re.search(r'(\d+)', line)
+            if m:
+                dist_val = int(m.group(1))
+                break
+
+        if dist_val is not None and 0 < dist_val < ULTRA_THRESHOLD_CM:
+            return True
     except Exception:
         pass
+
     return False
+
 
 def rotina_obstaculo(arduino):
     # 1) parar
     arduino.write(b"C 0 0\n"); time.sleep(0.05)
     # 2) ré
     arduino.write(b"C -160 -160\n"); time.sleep(REVERSE_TIME_S)
-    # 3) giro ~360°
+    # 3) giro ~180°
     arduino.write(b"C 170 -170\n"); time.sleep(SPIN_TIME_S)
     # 4) parar e rearmar proteção
     arduino.write(b"C 0 0\n"); time.sleep(0.1)
