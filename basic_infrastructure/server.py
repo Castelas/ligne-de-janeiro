@@ -31,7 +31,7 @@ def process_msg(msg):
             print(f"Novo no '{msg_from}' se registrando.")
             nodes.append(msg_from)
         reply = default_reply
-    el    if msg_from == "control" and msg_type == "key":
+    elif msg_from == "control" and msg_type == "key":
         key = msg.get("key", '')
         print(f"🎮 Recebido comando do control: {key}")
         reply = default_reply
