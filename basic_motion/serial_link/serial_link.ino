@@ -630,9 +630,10 @@ inline void task3() {
 inline void task4() {
   if (((int)millis()-tim4)>0)  // si on a atteint le temps programmé
   { 
-    if (analogRead(IR_pin)>500)     // on a détecté un obstacle
-    {
-      obst=true ;                   // indique que l'on a détecté un obstacle
+    // Détection d'obstacle par ultrason (distance < 15 cm)
+    long d = sr04.Distance();
+    if ((d > 0) && (d < 15)) {
+      obst=true ;                   // obstacle détecté
       nivM1=0 ; nivM2=0 ;
       set_motor1(0) ;
       set_motor2(0) ;

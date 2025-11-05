@@ -252,46 +252,14 @@ def enviar_comando_motor_serial(arduino, v_esq, v_dir):
     arduino.write(comando.encode('utf-8'))
 
 def ler_obstaculo_serial(arduino):
-    """True se OB (IR) aparecer no feedback ou se S < ULTRA_THRESHOLD_CM (ultrassom)."""
-    import re
+    """Retorna True quando o firmware envia 'OB' (obstáculo detectado pelo ultrassom)."""
     try:
-        # 1) tentar OB (apenas útil se estiver em A11/A12 e IR ativo)
         if arduino.in_waiting:
             line = arduino.readline().decode('utf-8', errors='ignore').strip()
             if 'OB' in line:
                 return True
     except Exception:
         pass
-
-    # 2) pedir distância do ultrassom de forma robusta
-    try:
-        # limpa lixo antigo
-        try:
-            arduino.reset_input_buffer()
-        except Exception:
-            pass
-
-        # envia requisição
-        arduino.write(b'S\n')
-
-        # tenta ler algumas vezes (p.ex. até 3 linhas ou ~150 ms)
-        deadline = time.time() + 0.15
-        dist_val = None
-        while time.time() < deadline:
-            line = arduino.readline().decode('utf-8', errors='ignore').strip()
-            if not line:
-                continue
-            # aceita "13", "13\r", "13 cm", "dist=13", etc.
-            m = re.search(r'(\d+)', line)
-            if m:
-                dist_val = int(m.group(1))
-                break
-
-        if dist_val is not None and 0 < dist_val < ULTRA_THRESHOLD_CM:
-            return True
-    except Exception:
-        pass
-
     return False
 
 
