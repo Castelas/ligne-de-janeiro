@@ -667,7 +667,7 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return
     Sai do quadrado usando a orientação declarada (assumida correta).
     """
     print(f"🚶 Saindo do quadrado ({sx},{sy})")
-    print(f"   Orientação: {dir_name(cur_dir)}")
+    print(f"   Orientação: {'Norte' if cur_dir == 0 else 'Leste' if cur_dir == 1 else 'Sul' if cur_dir == 2 else 'Oeste'}")
     print(f"   Destino: {target}")
 
     left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
@@ -738,7 +738,7 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return
     elif cur_dir == 3:  # Oeste
         new_dir = 3 if side_hint == 'L' else 0  # Esquerda: reto (Oeste), Direita: direita (Norte)
 
-    print(f"🔄 Executando giro final: {dir_name(cur_dir)} → {dir_name(new_dir)} (escolheu {'esquerda' if side_hint=='L' else 'direita'})")
+    print(f"🔄 Giro inicial: {'esquerda' if side_hint=='L' else 'direita'}")
 
     # Para antes de girar
     drive_cap(arduino, 0, 0); time.sleep(0.2)
@@ -766,7 +766,7 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return
         time.sleep(2.5)  # U-turn leva mais tempo
         drive_cap(arduino, 0, 0); time.sleep(0.4)
 
-    print(f"✅ Giro final executado - Agora virado para {dir_name(new_dir)}")
+    print(f"✅ Giro inicial concluído")
 
     if return_arrival_dir:
         # Calcula de qual direção o robô chega na interseção
@@ -824,17 +824,9 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         want=orientation_of_step(cur_node, nxt)
         rel=relative_turn(cur_dir,want)
 
-        # Debug detalhado das direções
-        print(f"🔄 DEBUG: De {cur_node} para {nxt}")
-        print(f"   Direção calculada: {dir_name(want)} (código: {want})")
-        print(f"   Direção atual: {dir_name(cur_dir)} (código: {cur_dir})")
-        print(f"   Diferença: {(want - cur_dir) % 4}")
-        print(f"   Giro relativo: {rel}")
-
         # Mostra cada virada específica
-        turn_names = {'F':'Frente', 'L':'Esquerda (90°)', 'R':'Direita (90°)', 'U':'Meia-volta (180°)'}
-        print(f"🔄 Intersecção ({cur_node[0]},{cur_node[1]}): {dir_name(cur_dir)} → {turn_names[rel]} → {dir_name(want)}")
-        print(f"   Indo para ({nxt[0]},{nxt[1]})")
+        turn_names = {'F':'reto', 'L':'esquerda', 'R':'direita', 'U':'meia-volta'}
+        print(f"🔄 Intersecção ({cur_node[0]},{cur_node[1]}): virar {turn_names[rel]} para ({nxt[0]},{nxt[1]})")
 
         # ⚠️  IMPORTANTE: Para completamente antes de virar
         drive_cap(arduino, 0, 0); time.sleep(0.3)
@@ -881,7 +873,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             return cur_node,cur_dir,False
 
         # Após o movimento, o robô mantém a direção 'want' para a qual estava indo
-        print(f"   ✅ Chegou em ({nxt[0]},{nxt[1]}) virado para {dir_name(want)}")
+        print(f"   ✅ Chegou em ({nxt[0]},{nxt[1]})")
         print()
         cur_node=nxt
         cur_dir = want  # Mantém a direção para a qual estava indo
@@ -1036,10 +1028,10 @@ def main():
     auto_state = "INIT"  # Estados: INIT, LEAVING, NAVIGATING, RETURNING, DONE
 
     try:
-        print(f"🏠 INÍCIO: Quadrado ({sx},{sy}), Orientação {dir_name(cur_dir)}")
-        print(f"📦 DESTINO: Nó ({tx},{ty})")
-        print("🕹️  MODO AUTOMÁTICO ATIVO")
-        print()
+    print(f"🏠 INÍCIO: Quadrado ({sx},{sy})")
+    print(f"📦 DESTINO: Nó ({tx},{ty})")
+    print("🤖 MODO AUTOMÁTICO")
+    print()
 
         # Variáveis para o modo automático
         start_node = None
