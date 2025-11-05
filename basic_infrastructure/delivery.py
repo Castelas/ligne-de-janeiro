@@ -65,7 +65,7 @@ Y_TARGET_STOP_FRAC = 0.85    # Reduzido para 85% da altura (mais fácil de alcan
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 TURN_SPEED = 200             # Velocidade para girar (90 graus) - aumentado
-TURN_DURATION_S = 1.0        # Duração (segundos) para o giro
+TURN_DURATION_S = 0.7        # Duração (segundos) para o giro - reduzido para evitar overshoot
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
