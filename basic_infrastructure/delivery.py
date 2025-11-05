@@ -170,6 +170,23 @@ def detect_intersections(mask):
             if p is None: continue
             x, y = p
             if 0 <= x < W and 0 <= y < H: pts.append((x, y))
+
+    # Adicionar interseções de borda simples (exatamente nas bordas X=0 ou X=W-1)
+    for lv in vertical:
+        rho_v, theta_v = lv
+        # Só para linhas quase verticais
+        if abs(theta_v) > 0.1: continue
+
+        # Interseção com borda esquerda (x=0)
+        y_left = int((rho_v - 0 * np.cos(theta_v)) / np.sin(theta_v))
+        if 0 <= y_left < H:
+            pts.append((0, y_left))
+
+        # Interseção com borda direita (x=W-1)
+        y_right = int((rho_v - (W-1) * np.cos(theta_v)) / np.sin(theta_v))
+        if 0 <= y_right < H:
+            pts.append((W-1, y_right))
+
     pts = _dedup_points(pts, radius=25)
     return pts, (vertical + horizontal)
 
