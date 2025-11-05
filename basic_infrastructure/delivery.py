@@ -46,7 +46,7 @@ BAUDRATE = 115200
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
 START_SPEED  = 90        # reta cega
-TURN_SPEED   = 120        # giros 90/180 (mais rápidos)
+TURN_SPEED   = 150        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 180     # limite superior do pivô - aumentado
