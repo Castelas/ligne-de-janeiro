@@ -602,7 +602,7 @@ def relative_turn(cur_dir,want_dir): return {0:'F',1:'R',2:'U',3:'L'}[(want_dir-
 def dir_name(d):
     return {0:'Norte', 1:'Leste', 2:'Sul', 3:'Oeste'}[d]
 
-def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
+def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, return_arrival_dir=True):
     """
     Sai do quadrado usando a orientação declarada (assumida correta).
     """
@@ -680,7 +680,15 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
     exec_turn(arduino, rel_turn)
 
     print(f"✅ Giro final executado - Agora virado para {dir_name(new_dir)}")
-    return chosen, new_dir, True
+
+    if return_arrival_dir:
+        # Calcula de qual direção o robô chega na interseção
+        # Como virou para new_dir e está indo para chosen, a direção de chegada é new_dir
+        arrival_dir = new_dir
+        print(f"📍 Chegando na interseção {chosen} vindo do {dir_name(arrival_dir)}")
+        return chosen, new_dir, True, arrival_dir
+    else:
+        return chosen, new_dir, True
 
 def exec_turn(arduino, rel):
     if rel=='F': return
@@ -691,12 +699,19 @@ def exec_turn(arduino, rel):
     else:  # U-turn (180°)
         drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=ALIGN_CAP); time.sleep(2.5); drive_cap(arduino,0,0); time.sleep(0.4)
 
-def follow_path(arduino, start_node, start_dir, path, camera):
+def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
     """
     O robô JÁ ESTÁ na primeira interseção (start_node) após leave_square_to_best_corner.
-    Esta função executa o resto do caminho A*.
+    arrival_dir: direção de chegada na primeira interseção (0=N, 1=L, 2=S, 3=W)
+    Se None, assume que arrival_dir = start_dir
     """
-    cur_node=start_node; cur_dir=start_dir
+    cur_node=start_node
+    # Se não especificada, assume que chegou virado para start_dir
+    actual_arrival_dir = arrival_dir if arrival_dir is not None else start_dir
+    cur_dir = actual_arrival_dir  # Começa com a direção de chegada
+
+    print(f"🚶🏁 Chegando na primeira interseção {start_node} vindo do {dir_name(actual_arrival_dir)}")
+
     drive_cap(arduino,0,0); time.sleep(0.1)
 
     # Mostra o caminho completo
@@ -750,9 +765,15 @@ def follow_path(arduino, start_node, start_dir, path, camera):
         if not go_to_next_intersection(arduino, camera):
             print(f"   ❌ Falha ao alcançar ({nxt[0]},{nxt[1]})")
             return cur_node,cur_dir,False
-        print(f"   ✅ Chegou em ({nxt[0]},{nxt[1]})")
+
+        # Calcula de qual direção chegou na próxima interseção
+        # Se estava indo para 'want' direção, chega vindo da direção oposta
+        arrival_dir_next = (want + 2) % 4  # Oposto: N<->S, L<->O
+
+        print(f"   ✅ Chegou em ({nxt[0]},{nxt[1]}) vindo do {dir_name(arrival_dir_next)}")
         print()
         cur_node=nxt
+        cur_dir = arrival_dir_next  # Atualiza direção de chegada para a próxima
 
     print(f"🎯 Chegou ao destino final!")
     return cur_node,cur_dir,True
@@ -856,7 +877,12 @@ def main():
         # Frame de início
         send_basic_frame(camera, f"Quadrado ({sx},{sy}) -> No ({tx},{ty})")
 
-        start_node, cur_dir, ok = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
+        result = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
+        if len(result) == 4:
+            start_node, cur_dir, ok, arrival_dir = result
+        else:
+            start_node, cur_dir, ok = result
+            arrival_dir = cur_dir  # fallback
         if not ok: print("❌ Falha na saída."); return
 
         print(f"📍 Após saída: Posição {start_node}, Direção {dir_name(cur_dir)}")
@@ -873,7 +899,7 @@ def main():
 
         print()
         send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
-        _,cur_dir,ok=follow_path(arduino, start_node, cur_dir, path, camera)
+        _,cur_dir,ok=follow_path(arduino, start_node, cur_dir, path, camera, arrival_dir)
         if not ok: print("❌ Falha na ida."); return
         print("✅ Entrega realizada com sucesso!")
         print()
@@ -885,7 +911,8 @@ def main():
                 print("❌ Nenhum caminho de retorno encontrado.")
                 return
             print()
-            _,_,ok=follow_path(arduino, target, cur_dir, back, camera)
+            # Para o retorno, assumimos que chegamos virados para cur_dir
+            _,_,ok=follow_path(arduino, target, cur_dir, back, camera, cur_dir)
             print("✅ Retornou ao ponto inicial!" if ok else "❌ Falhou no retorno.")
     finally:
         try:
