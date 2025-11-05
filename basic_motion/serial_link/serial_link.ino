@@ -20,7 +20,7 @@
 
 #include "parameters.h"
 #include <Servo.h>
-//#include "SR04.h"
+#include "SR04.h"
 
 #define digitalPinToInterrupt(p)  ((p) == 2 ? 0 : ((p) == 3 ? 1 : -1))
 
@@ -59,7 +59,7 @@ long int v2,lv2 ;
 long int v3,lv3 ;
 int vitesse1,vitesse2 ;
 
-//SR04 sr04 = SR04(ECHO_PIN,TRIG_PIN);  // gestion du capteur ultrasonore
+SR04 sr04 = SR04(ECHO_PIN,TRIG_PIN);  // gestion du capteur ultrasonore
 long a;
 int v;
 
@@ -496,11 +496,11 @@ void  INFRARED_TIME_code() {
 
 // renvoie la valeur du capteur ultrasons
 void  ULTRASON_code() {
-//  a=sr04.Distance();
-//  if (commode==2)
-//    write_i16(a); 
-//  else
-//    Serial.println(a);
+  a=sr04.Distance();
+  if (commode==2)
+    write_i16(a); 
+  else
+    Serial.println(a);
 }
 
 // renvoie la tension sur le moteur
