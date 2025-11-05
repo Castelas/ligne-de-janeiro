@@ -1,13 +1,15 @@
-# delivery_delivery_v12_FIXED.py — Delivery 4x4 (robot2 vision/control inline)
+# delivery_delivery_v14.py — Delivery 4x4 (robot2 vision/control inline)
 # Novidades v12:
 #  • Pós-pivô em 2 fases: (a) girar até VER a linha; (b) avançar devagar usando P até CENTRALIZAR.
 #    Isso resolve o “não anda o suficiente depois do pivô” e melhora o lock.
 #  • Intersecções menos “estritas”: banda mais baixa e estabilidade em 2 frames.
 #  • Mantém todas as rotinas de visão/controle idênticas ao robot2.py.
 #
-# + FIX v13 (por Gemini):
-#  • Adicionado "intersection_latch" na go_to_next_intersection para evitar
-#    que o robô "atropale" interseções nas bordas devido a detecção piscando.
+# + FIX v14 (por Gemini):
+#  • Corrigido 'intersection_latch' na go_to_next_intersection.
+#  • Lógica de detecção de interseção agora é INDEPENDENTE da
+#    confiança (conf) do seguidor de linha, corrigindo a falha
+#    onde o robô "atropelava" a interseção.
 #
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -65,7 +67,8 @@ ALIGN_STABLE    = 2       # frames estáveis [reduzido para entrar em FOLLOW mai
 ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativamente]
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
-Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
+# (PLANO B: Se o robô frear tarde, mude Y_START_SLOWING_FRAC para 0.50)
+Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 60% da altura
 Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.4       # Duração (segundos) do "anda mais um pouco" - aumentado
@@ -462,9 +465,13 @@ def best_intersection_in_band(pts, h, band_y0, band_y1):
     # Prioriza interseções dentro da banda, mas aceita fora se necessário
     return cand_in_band if cand_in_band is not None else cand_out_band
 
+# ==============================================================================
+# >>>>>>> INÍCIO DA FUNÇÃO CORRIGIDA (v14) <<<<<<<
+# ==============================================================================
 def go_to_next_intersection(arduino, camera):
     """
     Vai até a próxima interseção usando a lógica robusta do robot_pedro.py
+    (v14 - Lógica de 'latch' corrigida, movida para fora do 'if conf')
     """
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     last_err = 0.0
@@ -474,23 +481,21 @@ def go_to_next_intersection(arduino, camera):
     action_start_time = 0.0
     last_known_y = -1.0  # Última posição Y válida da interseção
     
-    # >>> [INÍCIO DA MODIFICAÇÃO v13] <<<
-    intersection_latch = False # Trava para evitar perder interseção que pisca
-    # >>> [FIM DA MODIFICAÇÃO v13] <<<
+    # Trava para evitar perder interseção que pisca
+    intersection_latch = False 
 
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img = f.array
             mask = build_binary_mask(img)
+            
+            # --- LÓGICA DE DETECÇÃO ---
+            
+            # 1. Detecção de LINHA (para seguir)
             img, erro, conf = processar_imagem(img)
 
-            # Debug: verificar se está detectando linha
-            if conf == 0:
-                print(f"   ⚠️  Linha perdida! erro={erro}, conf={conf}")
-            else:
-                print(f"   ✅ Linha OK: erro={erro:.1f}, conf={conf}")
-
-            # Encontrar a interseção alvo (a mais próxima, com maior 'y')
+            # 2. Detecção de INTERSEÇÃO (para parar)
+            #    (Feita independentemente de 'conf')
             intersections, detected_lines = detect_intersections(mask)
             target_intersection = None
             target_y = -1
@@ -503,127 +508,135 @@ def go_to_next_intersection(arduino, camera):
             Y_START_SLOWING = h * Y_START_SLOWING_FRAC
             Y_TARGET_STOP = h * Y_TARGET_STOP_FRAC
 
-            # Debug: mostrar valores importantes
             if target_y != -1:
                 print(f"   🎯 Interseção Y={target_y:.0f}, Y_TARGET_STOP={Y_TARGET_STOP:.0f}, State={state}")
+            elif conf == 0:
+                print(f"   ⚠️  Linha perdida! erro={erro}, conf={conf}")
+            else:
+                print(f"   ✅ Linha OK: erro={erro:.1f}, conf={conf}")
 
-            # --- Máquina de Estados de Controle (do robot_pedro.py) ---
 
-            # 1. Transições de Estado
+            # --- MÁQUINA DE ESTADOS (LÓGICA CORRIGIDA) ---
+
+            # --- 1. GATILHO DE TRANSIÇÃO (SEMPRE VERIFICADO) ---
+            
+            # Se a interseção for vista E o 'latch' não estiver ativado, ative-o.
+            # Isto agora é verificado mesmo se conf=0.
+            if (not intersection_latch) and (target_y > Y_START_SLOWING):
+                print(f"   🎯 GATILHO ATIVADO! (Y={target_y:.0f} > {Y_START_SLOWING:.0f}).")
+                intersection_latch = True
+
+            # --- 2. TRANSIÇÕES DE ESTADO ---
+            
             if state == 'FOLLOW':
+                # A. Lógica de perda de linha
                 if conf == 0:
                     lost_frames += 1
                     if lost_frames >= LOST_MAX_FRAMES:
-                        state = 'LOST'
-                        last_known_y = -1.0
-                        intersection_latch = False # Reseta o latch se perder a linha
-                else:
-                    lost_frames = 0
-                    last_err = erro
-                    last_known_y = -1.0
-                    
-                    # >>> [INÍCIO DA MODIFICAÇÃO v13] <<<
-                    # Se a interseção for detectada, ative o 'latch'
-                    if target_y > Y_START_SLOWING:
-                        print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Ativando 'latch' de aproximação.")
-                        intersection_latch = True
-                    
-                    # Se o 'latch' estiver ativado, mude de estado
-                    # Isso impede que um flicker (target_y = -1) no frame seguinte cancele a aproximação
-                    if intersection_latch:
-                        state = 'APPROACHING'
-                        # Define um last_known_y válido mesmo se target_y tiver piscado para -1
-                        last_known_y = target_y if target_y != -1 else (h * Y_START_SLOWING_FRAC + 10) 
-                    # >>> [FIM DA MODIFICAÇÃO v13] <<<
-
-            elif state == 'APPROACHING':
-                # Verifica a perda de linha, mas com tolerância
-                if conf == 0:
-                    lost_frames += 1
-                    print(f"   ⚠️  Aproximando, confiança perdida! (Frame {lost_frames})")
-
-                    if lost_frames >= LOST_MAX_FRAMES:
-                        print("   ❌ Linha perdida durante aproximação.")
+                        print("   ❌ Linha perdida (FOLLOW). Mudando para LOST.")
                         state = 'LOST'
                         last_known_y = -1.0
                         intersection_latch = False # Reseta
-
-                else:
+                
+                # B. Lógica de seguimento de linha
+                else: # conf == 1
                     lost_frames = 0
+                    last_err = erro
+                    last_known_y = -1.0
+                
+                # C. Lógica de MUDANÇA para Aproximação
+                #    (Agora independente de 'conf')
+                if intersection_latch:
+                    print(f"   ➡️  LATCH ATIVO: Mudando de FOLLOW para APPROACHING.")
+                    state = 'APPROACHING'
+                    # Define um last_known_y válido mesmo se target_y tiver piscado para -1
+                    last_known_y = target_y if target_y != -1 else (Y_START_SLOWING + 10) 
 
-                    # Atualiza a posição conhecida da interseção
-                    if target_y != -1:
-                         last_known_y = target_y
+            elif state == 'APPROACHING':
+                if conf == 0:
+                    lost_frames += 1
+                    print(f"   ⚠️  Aproximando, confiança perdida! (Frame {lost_frames})")
+                    if lost_frames >= LOST_MAX_FRAMES:
+                        print("   ❌ Linha perdida (APPROACHING). Mudando para LOST.")
+                        state = 'LOST'
+                        last_known_y = -1.0
+                        intersection_latch = False
+                else: # conf == 1
+                    lost_frames = 0
+                    last_err = erro # Atualiza o erro para o caso de precisar procurar
 
-                         # GATILHO 1: Atingimos o alvo de Y?
-                         if last_known_y >= Y_TARGET_STOP:
-                            print("   🛑 Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
-                            state = 'STOPPING'
-                            action_start_time = time.time()
-                            last_known_y = -1.0 # Reseta para a próxima
-
-                    # GATILHO 2: Interseção desapareceu completamente (backup)
-                    if target_y == -1 and last_known_y > Y_START_SLOWING:
-                        print(f"   🛑 Interseção desapareceu (era Y={last_known_y:.0f}). Parando...")
+                # Atualiza a posição conhecida da interseção
+                if target_y != -1:
+                     last_known_y = target_y
+                     # GATILHO 1: Atingimos o alvo de Y?
+                     if last_known_y >= Y_TARGET_STOP:
+                        print("   🛑 Alvo (Y_TARGET_STOP) atingido. Mudando para STOPPING...")
                         state = 'STOPPING'
                         action_start_time = time.time()
-                        last_known_y = -1.0 # Reseta para a próxima
+                        last_known_y = -1.0 
+                
+                # GATILHO 2: Interseção desapareceu (backup)
+                # (Apenas se 'conf' ainda for 1, ou seja, não estamos perdidos)
+                elif conf == 1 and target_y == -1 and last_known_y > Y_START_SLOWING:
+                    print(f"   🛑 Interseção desapareceu (era Y={last_known_y:.0f}). Mudando para STOPPING...")
+                    state = 'STOPPING'
+                    action_start_time = time.time()
+                    last_known_y = -1.0
 
             elif state == 'STOPPING':
                 if (time.time() - action_start_time) > CRAWL_DURATION_S:
-                    print("   ✅ Parada completa na interseção!")
+                    print("   ✅ Parada completa. Mudando para STOPPED.")
                     state = 'STOPPED'
-                    # >>> [INÍCIO DA MODIFICAÇÃO v13] <<<
-                    intersection_latch = False # Reseta o latch para a próxima interseção
-                    # >>> [FIM DA MODIFICAÇÃO v13] <<<
+                    intersection_latch = False # Reseta para a próxima interseção
 
             elif state == 'LOST':
                 if conf == 1:
-                    print("   ✅ Linha reencontrada.")
+                    print("   ✅ Linha reencontrada. Mudando para FOLLOW.")
                     state = 'FOLLOW'
                     lost_frames = 0
                     last_err = erro
                     last_known_y = -1.0
                     intersection_latch = False # Reseta
 
-            # 2. Ações de Estado (Definir velocidades)
+            # --- 3. AÇÕES DE ESTADO (Definir velocidades) ---
+            
             if state == 'FOLLOW':
                 if conf == 1:
-                    # Mantém velocidade base constante, apenas corrige com P
                     v_esq, v_dir = calcular_velocidades_auto(erro, VELOCIDADE_BASE)
                 else:
-                    # Janela de tolerância: continua reto
+                    # Janela de tolerância (conf=0 mas lost_frames < MAX)
                     v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
 
             elif state == 'APPROACHING':
+                # Se estamos aproximando mas perdemos a linha, reduz velocidade mas não corrige
+                base_speed_approaching = VELOCIDADE_BASE * 0.5 # Uma velocidade de aproximação mais lenta
+                
                 if conf == 0:
-                    # Continua reto em velocidade reduzida
-                    base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
-                    v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
+                    v_esq, v_dir = calcular_velocidades_auto(0, base_speed_approaching)
                 else:
-                    # Frenagem gradual baseada em last_known_y
+                    # Frenagem gradual (lógica original)
                     progress = 0.0
                     if (Y_TARGET_STOP - Y_START_SLOWING) > 0:
                         progress = (last_known_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
-
+                    
                     speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
                     current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
                     base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
                     v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
 
             elif state == 'STOPPING':
-                # "Anda mais um pouco" - crawl reto
                 v_esq, v_dir = CRAWL_SPEED, CRAWL_SPEED
 
             elif state == 'STOPPED':
                 v_esq, v_dir = 0, 0
 
             elif state == 'LOST':
-                # Lógica de busca
                 turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                 v_esq, v_dir = int(turn), int(-turn)
 
-            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
+            # O cap original ALIGN_CAP (120) era muito baixo para VELOCIDADE_BASE (110)
+            # Vamos usar VELOCIDADE_MAX (255) como cap aqui
+            drive_cap(arduino, v_esq, v_dir, cap=VELOCIDADE_MAX)
 
             # ---------------- VISUALIZAÇÃO ----------------
             display_frame = img.copy()
@@ -662,6 +675,10 @@ def go_to_next_intersection(arduino, camera):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
             cv2.putText(display_frame, f"Y_target: {target_y:.0f}", (10, 75),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
+            # DEBUG VISUAL DO LATCH:
+            cv2.putText(display_frame, f"LATCH: {intersection_latch}", (10, 95),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 100, 100), 1)
+
 
             send_frame_to_stream(display_frame)
 
@@ -678,6 +695,10 @@ def go_to_next_intersection(arduino, camera):
 
     finally:
         raw.truncate(0)
+# ==============================================================================
+# >>>>>>> FIM DA FUNÇÃO CORRIGIDA (v14) <<<<<<<
+# ==============================================================================
+
 
 # ====================== Planejamento e Execução ======================
 def manhattan(a,b): return abs(a[0]-b[0])+abs(a[1]-b[1])
