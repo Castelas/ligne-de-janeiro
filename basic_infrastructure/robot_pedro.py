@@ -31,7 +31,7 @@ ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
 # --- CONTROLE (P puro; sem derivativo ainda) ---
-VELOCIDADE_BASE = 150
+VELOCIDADE_BASE = 110
 VELOCIDADE_CURVA = 100
 Kp = 0.8
 VELOCIDADE_MAX = 255
@@ -55,12 +55,12 @@ USE_ADAPTIVE    = False                 # threshold adaptativo desligado por pad
 Y_START_SLOWING_FRAC = 0.50  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 0.95    # Ponto de parada (para iniciar o "crawl") a 95% da altura
 CRAWL_SPEED = 80             # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.25       # Duração (segundos) do "anda mais um pouco"
+CRAWL_DURATION_S = 0.1       # Duração (segundos) do "anda mais um pouco"
 
 # NOVOS PARÂMETROS PARA AÇÕES NA INTERSEÇÃO
 TURN_SPEED = 130             # Velocidade para girar (90 graus)
 TURN_DURATION_S = 1          # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
-STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
+STRAIGHT_SPEED = 90         # Velocidade para "seguir reto"
 
 TURN_DURATION_S = 1          # Duração (segundos) para o giro (AJUSTAR NA PRÁTICA)
 STRAIGHT_SPEED = 100         # Velocidade para "seguir reto"
