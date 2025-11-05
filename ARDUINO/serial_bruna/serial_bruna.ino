@@ -24,7 +24,6 @@
 #define digitalPinToInterrupt(p)  ((p) == 2 ? 0 : ((p) == 3 ? 1 : -1))
 #define ULTRASONIC_STOP_DISTANCE_CM 15  // Define a distância em cm para parada
 unsigned long distance = 0;
-uint8_t EnPwmCmd[4]={0x44,0x02,0xbb,0x01};
 
 char feedback ;   // si non nul indique que les commandes doivent renvoyer un acquittement
 
@@ -112,7 +111,7 @@ void init_arduino() {
   task1on=false ;       
   Task2On() ;    
   task3on=false ;       
-  Task4On() ;     // TIRAR E DEIXAR COMANDO SÓ
+  task4on=false ;
   task5on=false ;     
 }
 
@@ -124,11 +123,9 @@ void setup() {
   pinMode(motor2PWM, OUTPUT);
   pinMode(motor2SNS, OUTPUT);
   pinMode(TRIG_PIN, OUTPUT);
+  digitalWrite(TRIG_PIN,HIGH);
   pinMode(ECHO_PIN,INPUT);
-  for(int i=0; i<4; i++){
-    Serial.write(EnPwmCmd[i]);
-  }
-  
+
   tim1 = (int)millis()+del1;
   tim2 = (int)millis()+del2;
   tim3 = (int)millis()+del3;
