@@ -558,16 +558,12 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target):
         print("✗ Falha na reta inicial.")
         return None, None, False
 
-    # Pivô: girar até ver + alinhar andando
+    # Pivô: girar até ver a linha
     if not spin_in_place_until_seen(arduino, camera, side_hint=side_hint):
         print("✗ Falha no pivô (não viu linha).")
         return None, None, False
 
-    if not forward_align_on_line(arduino, camera):
-        print("✗ Falha no alinhamento após pivô.")
-        return None, None, False
-
-    # Segue para 1ª intersecção
+    # Segue diretamente para 1ª intersecção (sem alinhamento complexo)
     if not go_to_next_intersection(arduino, camera):
         print("✗ Falha ao alcançar a intersecção.")
         return None, None, False
