@@ -691,7 +691,7 @@ def front_left_right_corners(sx,sy,orient):
     # Mas acessíveis dependem da orientação
     if orient==0:  return ( (sx,sy),     (sx,sy+1) )     # Norte: (X,Y), (X,Y+1)
     if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y), (X+1,Y+1)
-    if orient==2:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Sul: (X+1,Y), (X+1,Y+1)
+    if orient==2:  return ( (sx+1,sy+1), (sx+1,sy) )   # Sul: (X+1,Y+1), (X+1,Y)
     if orient==3:  return ( (sx,sy),     (sx+1,sy) )     # Oeste: (X,Y), (X+1,Y)
     raise ValueError
 
