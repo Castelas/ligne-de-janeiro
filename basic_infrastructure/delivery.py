@@ -8,6 +8,10 @@ from picamera.array import PiRGBArray
 from picamera import PiCamera
 import cv2, time, numpy as np, serial, argparse, zmq, base64
 
+# --- CONFIGURAÇÃO CONTROLE REMOTO ---
+SERVER_IP = "192.168.137.176"  # IP do computador que roda o server.py
+# --- FIM CONFIGURAÇÃO ---
+
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
 THRESHOLD_VALUE = 150  # Ajustado para detectar linhas BRANCAS adequadamente
@@ -778,6 +782,53 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
     print(f"🎯 Chegou ao destino final!")
     return cur_node,cur_dir,True
 
+# =================================== CONTROLE REMOTO ===================================
+def init_remote_control():
+    """Inicializa conexão com o servidor de controle remoto"""
+    try:
+        context = zmq.Context()
+        req_socket = context.socket(zmq.REQ)
+        req_socket.connect(f"tcp://{SERVER_IP}:5005")
+        print(f"🕹️  Controle remoto conectado ao servidor {SERVER_IP}")
+        return req_socket
+    except Exception as e:
+        print(f"⚠️  Erro ao conectar controle remoto: {e}")
+        return None
+
+def get_remote_key(req_socket):
+    """Obtém tecla do controle remoto"""
+    if req_socket is None:
+        return None
+    try:
+        msg = {"from": "robot", "cmd": "key_request"}
+        req_socket.send_pyobj(msg)
+        reply = req_socket.recv_pyobj()
+        key = reply.get("key", "")
+        return key if key else None
+    except Exception as e:
+        print(f"⚠️  Erro ao obter tecla remota: {e}")
+        return None
+
+def manual_control(arduino, key):
+    """Controle manual baseado na tecla pressionada"""
+    if key == 'w':  # Frente
+        drive_cap(arduino, VELOCIDADE_BASE, VELOCIDADE_BASE)
+        print("🕹️  MANUAL: Frente")
+    elif key == 's':  # Trás
+        drive_cap(arduino, -VELOCIDADE_BASE, -VELOCIDADE_BASE)
+        print("🕹️  MANUAL: Trás")
+    elif key == 'a':  # Esquerda
+        drive_cap(arduino, -VELOCIDADE_BASE, VELOCIDADE_BASE)
+        print("🕹️  MANUAL: Girando esquerda")
+    elif key == 'd':  # Direita
+        drive_cap(arduino, VELOCIDADE_BASE, -VELOCIDADE_BASE)
+        print("🕹️  MANUAL: Girando direita")
+    elif key == 'stop':  # Parar
+        drive_cap(arduino, 0, 0)
+        print("🕹️  MANUAL: Parado")
+    elif key == 'm':  # Toggle modo
+        print("🕹️  Toggle modo manual/automatico")
+
 # =================================== MAIN ===================================
 def parse_args():
     ap=argparse.ArgumentParser()
@@ -842,6 +893,9 @@ def main():
     if not (0<=tx<=4 and 0<=ty<=4): raise SystemExit("target 0..4 0..4")
     target=(tx,ty)
 
+    # Inicializar controle remoto
+    remote_socket = init_remote_control()
+
     # Inicializar câmera e streaming
     camera = PiCamera(); camera.resolution=(IMG_WIDTH, IMG_HEIGHT); camera.framerate=24
     time.sleep(1.0)  # warm-up mais longo
@@ -869,57 +923,137 @@ def main():
         except Exception: pass
     except Exception: pass
 
+    # Estados do robô
+    manual_mode = False
+    last_key = None
+    auto_state = "INIT"  # Estados: INIT, LEAVING, NAVIGATING, RETURNING, DONE
+
     try:
         print(f"🏠 INÍCIO: Quadrado ({sx},{sy}), Orientação {dir_name(cur_dir)}")
         print(f"📦 DESTINO: Nó ({tx},{ty})")
+        print("🕹️  MODO AUTOMÁTICO ATIVO")
         print()
 
-        # Frame de início
-        send_basic_frame(camera, f"Quadrado ({sx},{sy}) -> No ({tx},{ty})")
+        # Variáveis para o modo automático
+        start_node = None
+        path = None
+        back_path = None
+        arrival_dir = None
 
-        result = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
-        if len(result) == 4:
-            start_node, cur_dir, ok, arrival_dir = result
-        else:
-            start_node, cur_dir, ok = result
-            arrival_dir = cur_dir  # fallback
-        if not ok: print("❌ Falha na saída."); return
+        while True:  # Loop principal com controle remoto
+            # Verificar comandos remotos
+            remote_key = get_remote_key(remote_socket)
 
-        print(f"📍 Após saída: Posição {start_node}, Direção {dir_name(cur_dir)}")
-        print()
+            if remote_key == 'm':
+                manual_mode = not manual_mode
+                if manual_mode:
+                    print("🕹️  MODO MANUAL ATIVADO - Use W/A/S/D para controlar")
+                    send_basic_frame(camera, "MODO MANUAL - Use W/A/S/D")
+                    drive_cap(arduino, 0, 0)  # Parar antes de mudar modo
+                    last_key = None
+                else:
+                    print("🤖 MODO AUTOMÁTICO ATIVADO")
+                    send_basic_frame(camera, "MODO AUTOMATICO")
+                    drive_cap(arduino, 0, 0)  # Parar antes de mudar modo
+                    last_key = None
+                    auto_state = "INIT"  # Resetar estado automático
+                time.sleep(0.5)  # Debounce
+                continue
 
-        print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
-        send_basic_frame(camera, "Calculando caminho A*...")
+            if manual_mode:
+                # Modo manual: responder diretamente aos comandos
+                if remote_key in ['w', 'a', 's', 'd']:
+                    manual_control(arduino, remote_key)
+                    last_key = remote_key
+                elif remote_key == 'stop' or (last_key and not remote_key):
+                    manual_control(arduino, 'stop')
+                    last_key = None
+                # Se não há tecla, continua o último comando (para manter movimento)
 
-        path=a_star(start_node, target, GRID_NODES)
-        if path is None:
-            print("❌ Nenhum caminho encontrado pelo A*.")
-            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
-            return
+            else:
+                # Modo automático: executar lógica de navegação
+                if auto_state == "INIT":
+                    send_basic_frame(camera, f"Quadrado ({sx},{sy}) -> No ({tx},{ty})")
+                    auto_state = "LEAVING"
 
-        print()
-        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
-        _,cur_dir,ok=follow_path(arduino, start_node, cur_dir, path, camera, arrival_dir)
-        if not ok: print("❌ Falha na ida."); return
-        print("✅ Entrega realizada com sucesso!")
-        print()
+                elif auto_state == "LEAVING":
+                    result = leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target)
+                    if len(result) == 4:
+                        start_node, cur_dir, ok, arrival_dir = result
+                    else:
+                        start_node, cur_dir, ok = result
+                        arrival_dir = cur_dir  # fallback
+                    if not ok:
+                        print("❌ Falha na saída.")
+                        send_basic_frame(camera, "ERRO: Falha na saida")
+                        return
 
-        if not args.no_return:
-            print("🔄 CALCULANDO CAMINHO DE RETORNO...")
-            back=a_star(target, start_node, GRID_NODES)
-            if back is None:
-                print("❌ Nenhum caminho de retorno encontrado.")
-                return
-            print()
-            # Para o retorno, assumimos que chegamos virados para cur_dir
-            _,_,ok=follow_path(arduino, target, cur_dir, back, camera, cur_dir)
-            print("✅ Retornou ao ponto inicial!" if ok else "❌ Falhou no retorno.")
+                    print(f"📍 Após saída: Posição {start_node}, Direção {dir_name(cur_dir)}")
+                    send_basic_frame(camera, f"Posicao: {start_node}")
+                    auto_state = "CALCULATING_PATH"
+
+                elif auto_state == "CALCULATING_PATH":
+                    print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
+                    send_basic_frame(camera, "Calculando caminho A*...")
+
+                    path = a_star(start_node, target, GRID_NODES)
+                    if path is None:
+                        print("❌ Nenhum caminho encontrado pelo A*.")
+                        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+                        return
+
+                    print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
+                    send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
+                    auto_state = "NAVIGATING"
+
+                elif auto_state == "NAVIGATING":
+                    _, cur_dir, ok = follow_path(arduino, start_node, cur_dir, path, camera, arrival_dir)
+                    if not ok:
+                        print("❌ Falha na navegação.")
+                        send_basic_frame(camera, "ERRO: Falha na navegacao")
+                        return
+                    print("✅ Entrega realizada com sucesso!")
+                    send_basic_frame(camera, "Entrega realizada!")
+                    auto_state = "RETURNING" if not args.no_return else "DONE"
+
+                elif auto_state == "RETURNING":
+                    print("🔄 CALCULANDO CAMINHO DE RETORNO...")
+                    send_basic_frame(camera, "Calculando retorno...")
+
+                    back_path = a_star(target, (sx, sy), GRID_NODES)
+                    if back_path is None:
+                        print("❌ Nenhum caminho de retorno encontrado.")
+                        send_basic_frame(camera, "ERRO: Caminho retorno nao encontrado")
+                        return
+
+                    print(f"🔙 CAMINHO RETORNO: {' -> '.join([f'({x},{y})' for x,y in back_path])}")
+                    send_basic_frame(camera, f"Retorno: {' -> '.join([f'({x},{y})' for x,y in back_path])}")
+
+                    # Para o retorno, assumimos que chegamos virados para cur_dir
+                    _, _, ok = follow_path(arduino, target, cur_dir, back_path, camera, cur_dir)
+                    if ok:
+                        print("✅ Retornou ao ponto inicial!")
+                        send_basic_frame(camera, "Retorno concluido!")
+                    else:
+                        print("❌ Falhou no retorno.")
+                        send_basic_frame(camera, "ERRO: Falha no retorno")
+                    auto_state = "DONE"
+
+                elif auto_state == "DONE":
+                    print("🎯 Missão completa!")
+                    send_basic_frame(camera, "MISSAO COMPLETA")
+                    break
+
+            time.sleep(0.1)  # Pequena pausa para não sobrecarregar
+
     finally:
         try:
             enviar_comando_motor_serial(arduino, 0, 0)
             arduino.write(b'a\n'); arduino.close()
         except Exception: pass
         camera.close()
+        if remote_socket:
+            remote_socket.close()
 
 if __name__=='__main__':
     main()
