@@ -51,7 +51,7 @@ TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 180     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
-PIVOT_TIMEOUT   = 6.0   # Reduzido para não virar demais
+PIVOT_TIMEOUT   = 4.0   # Ainda mais reduzido para controlar giro
 SEEN_FRAMES     = 2       # frames consecutivos "vendo" a linha para sair do giro
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
@@ -61,7 +61,7 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 0.85    # Reduzido para 85% da altura (mais fácil de alcançar)
+Y_TARGET_STOP_FRAC = 0.95    # Aumentado para 95% - passa mais pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 TURN_SPEED = 200             # Velocidade para girar (90 graus) - aumentado
