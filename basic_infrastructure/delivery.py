@@ -276,6 +276,14 @@ def straight_until_seen_then_lost(arduino, camera):
             row_frac = band.sum(axis=1)/(255.0*w)
             present = row_frac.max() >= ROW_PEAK_FRAC_THR
 
+            # Enviar frame para o stream durante a reta inicial
+            display_frame = img.copy()
+            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+            display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
+            cv2.putText(display_frame, f"Reta Inicial - Present: {present}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            send_frame_to_stream(display_frame)
+
             # Mantém velocidade inicial até ver a linha
             current_speed = initial_speed if not saw else START_SPEED
             drive_cap(arduino, current_speed, current_speed)
@@ -303,9 +311,17 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L'):
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
-            _, err, conf = processar_imagem(img)
+            img_display, err, conf = processar_imagem(img)
             v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
             drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
+
+            # Enviar frame para o stream durante o pivot
+            mask = build_binary_mask(img_display)
+            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+            display_frame = cv2.addWeighted(img_display, 0.7, mask_color, 0.3, 0)
+            cv2.putText(display_frame, f"Pivot - Conf: {conf}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            send_frame_to_stream(display_frame)
 
             if conf==1:
                 seen_cnt += 1
@@ -684,23 +700,14 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, path=N
     print(f"   Orientação: {'Norte' if cur_dir == 0 else 'Leste' if cur_dir == 1 else 'Sul' if cur_dir == 2 else 'Oeste'}")
     print(f"   Destino: {target}")
 
-    # Se temos um path, usar a primeira interseção dele
-    if path and len(path) > 1:
-        chosen = path[1]  # Primeira interseção do path
-        print(f"   Usando path A*: primeira interseção {chosen}")
-        # Determinar se é left ou right corner baseado na orientação
-        left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
-        side_hint = 'L' if chosen == left_corner else 'R'
-    else:
-        # Fallback para lógica antiga
-        left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
-        dl = manhattan(left_corner, target)
-        dr = manhattan(right_corner, target)
-        side_hint = 'L' if dl <= dr else 'R'
-        chosen = left_corner if side_hint=='L' else right_corner
+    left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
+    dl = manhattan(left_corner, target)
+    dr = manhattan(right_corner, target)
+    side_hint = 'L' if dl <= dr else 'R'
+    chosen = left_corner if side_hint=='L' else right_corner
 
-        print(f"   Escolhendo canto {chosen} (virada: {'esquerda' if side_hint=='L' else 'direita'})")
-        print(f"   Distância Manhattan: {dl} vs {dr}")
+    print(f"   Escolhendo canto {chosen} (virada: {'esquerda' if side_hint=='L' else 'direita'})")
+    print(f"   Distância Manhattan: {dl} vs {dr}")
 
     # Reta cega
     if not straight_until_seen_then_lost(arduino, camera):
