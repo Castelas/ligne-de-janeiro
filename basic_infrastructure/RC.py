@@ -9,8 +9,10 @@ from picamera.array import PiRGBArray
 
 # --- PARÂMETROS ---
 SERVER_IP = "192.168.137.164"  # IP do computador que roda o server.py
-VELOCIDADE_BASE = 120          # Velocidade base para movimento
+VELOCIDADE_BASE = 180          # Velocidade base para movimento (aumentada)
 IMG_WIDTH, IMG_HEIGHT = 640, 480
+COMMAND_TIMEOUT = 10           # Frames sem comando antes de parar (cooldown)
+STOP_COMMANDS_NEEDED = 3       # Quantos "stop" seguidos para parar
 
 # --- FUNÇÕES ---
 
@@ -115,6 +117,8 @@ def main():
     print("Pressione Ctrl+C para sair.")
 
     current_key = ''  # Última tecla enviada
+    command_counter = 0  # Contador de frames sem comando
+    stop_counter = 0  # Contador de comandos "stop" seguidos
 
     try:
         # Loop de captura e transmissão de vídeo
@@ -124,14 +128,36 @@ def main():
             remote_key = get_remote_key(req_socket)
 
             if remote_key in ['w', 'a', 's', 'd']:
-                # Movimento
+                # Movimento - resetar contadores
                 if remote_key != current_key:
                     manual_control(arduino, remote_key)
                     current_key = remote_key
-            elif remote_key == 'stop' or (current_key and not remote_key):
-                # Parar
-                manual_control(arduino, 'stop')
-                current_key = ''
+                    print(f"🎮 Comando ativo: {remote_key}")
+                command_counter = 0
+                stop_counter = 0
+
+            elif remote_key == 'stop':
+                # Comando stop - contar
+                stop_counter += 1
+                command_counter = 0
+                if stop_counter >= STOP_COMMANDS_NEEDED:
+                    manual_control(arduino, 'stop')
+                    current_key = ''
+                    stop_counter = 0
+                    print("🛑 Parada confirmada (múltiplos stops)")
+
+            elif remote_key is None or remote_key == '':
+                # Sem comando - implementar cooldown
+                command_counter += 1
+                if command_counter >= COMMAND_TIMEOUT and current_key:
+                    print(f"⏰ Cooldown expirado, mantendo: {current_key}")
+                    # Manter movimento atual, não parar
+                elif command_counter >= COMMAND_TIMEOUT * 2:
+                    # Só parar após muito tempo sem comando
+                    manual_control(arduino, 'stop')
+                    current_key = ''
+                    command_counter = 0
+                    print("🛑 Parada por timeout longo")
 
             # Transmitir frame
             img = frame.array
