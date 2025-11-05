@@ -524,22 +524,22 @@ def go_to_next_intersection(arduino, camera):
             # 1. Transições de Estado
             if state == 'FOLLOW':
                 print(f"   🔄 State machine: conf={conf}, target_y={target_y}, Y_START_SLOWING={Y_START_SLOWING:.0f}")
-                if conf == 0:
+                # Verificar se devemos aproximar (independente de conf atual)
+                if target_y > Y_START_SLOWING and target_y != -1:
+                    print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
+                    state = 'APPROACHING'
+                    last_known_y = target_y
+                    lost_frames = 0
+                elif conf == 0:
                     lost_frames += 1
                     if lost_frames >= LOST_MAX_FRAMES:
                         state = 'LOST'
                         last_known_y = -1.0
                 else:
                     lost_frames = 0
-                    # Linha OK - verificar se devemos aproximar
-                    if target_y > Y_START_SLOWING:
-                        print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
-                        state = 'APPROACHING'
-                        last_known_y = target_y
-                    else:
-                        print(f"   ⏳ Aguardando aproximação: target_y={target_y:.0f} <= Y_START_SLOWING={Y_START_SLOWING:.0f}")
-                        last_err = erro
-                        last_known_y = -1.0
+                    print(f"   ⏳ Aguardando aproximação: target_y={target_y:.0f} <= Y_START_SLOWING={Y_START_SLOWING:.0f}")
+                    last_err = erro
+                    last_known_y = -1.0
 
             elif state == 'APPROACHING':
                 # Verifica a perda de linha, mas com tolerância
