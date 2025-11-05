@@ -51,7 +51,7 @@ TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 180     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
-PIVOT_TIMEOUT   = 1.7   # Ligeiramente aumentado para virar um tiquinho mais
+PIVOT_TIMEOUT   = 1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
