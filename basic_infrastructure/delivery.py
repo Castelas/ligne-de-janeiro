@@ -1104,9 +1104,9 @@ def main():
         print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
         send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
 
-    # Determinar a melhor interseção inicial baseada na orientação
-    target_intersection = find_best_accessible_intersection(path, cur_dir)
-    print(f"🎯 Melhor interseção acessível: {target_intersection} (baseado na orientação)")
+        # Determinar a melhor interseção inicial baseada na orientação
+        target_intersection = find_best_accessible_intersection(path, cur_dir)
+        print(f"🎯 Melhor interseção acessível: {target_intersection} (baseado na orientação)")
 
         # Variáveis para o modo automático
         start_node = None
