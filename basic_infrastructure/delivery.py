@@ -64,8 +64,8 @@ Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70
 Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.4       # Duração (segundos) do "anda mais um pouco" - aumentado
-TURN_SPEED = 150             # Velocidade para girar (90 graus) - conforme solicitado
-TURN_DURATION_S = 0.9        # Duração (segundos) para o giro - aumentado conforme solicitado
+TURN_SPEED = 180             # Velocidade para girar (90 graus) - aumentado para giros mais precisos
+TURN_DURATION_S = 0.8        # Duração (segundos) para o giro - ajustado para 90 graus exatos
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
@@ -913,6 +913,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         # Mostra cada virada específica
         turn_names = {'F':'reto', 'L':'esquerda', 'R':'direita', 'U':'meia-volta'}
         print(f"🔄 Intersecção ({cur_node[0]},{cur_node[1]}): virar {turn_names[rel]} para ({nxt[0]},{nxt[1]})")
+        print(f"   📍 cur_dir={cur_dir}, want={want}, rel={rel}")
 
         # ⚠️  IMPORTANTE: Para completamente antes de virar
         drive_cap(arduino, 0, 0); time.sleep(0.3)
