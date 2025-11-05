@@ -3,6 +3,7 @@ import zmq
 import serial
 import time
 import cv2
+import base64
 from picamera import PiCamera
 from picamera.array import PiRGBArray
 
@@ -134,8 +135,8 @@ def main():
 
             # Transmitir frame
             img = frame.array
-            _, buffer = cv2.imencode('.jpg', img)
-            stream_socket.send(buffer.tobytes())
+            _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            stream_socket.send(base64.b64encode(buffer))
 
             raw.truncate(0)
 
