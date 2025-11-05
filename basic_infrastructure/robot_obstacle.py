@@ -54,9 +54,10 @@ PORTA_SERIAL = '/dev/ttyACM0'
 BAUDRATE = 115200
 
 # ======================== OBSTACLE/ULTRASSOM CONFIG ==========================
-REVERSE_TIME_S = 1.5     # tempo de ré quando obstáculo detectado
-SPIN_TIME_S    = 1.6     # tempo aproximado para ~360° (ajuste no seu robô)
-ULTRA_THRESHOLD_CM = 25  # distância para considerar obstáculo
+REVERSE_TIME_S = 1.5     # tempo de ré quando obstáculo detectado (não usado)
+SPIN_TIME_S    = 1.6     # tempo aproximado para ~360° (não usado)
+# Ajuste do limiar ultrassônico: aumenta para 30 cm para considerar obstáculo
+ULTRA_THRESHOLD_CM = 30  # distância para considerar obstáculo
 
 # ============================ AUXILIARES VISUAIS ============================
 def _angle_diff(a, b):
@@ -327,17 +328,21 @@ def main():
     print("Robo iniciado. Pressione 'm' para trocar de modo.")
 
     try:
+        # Loop principal de captura e controle
         for frame in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             image = frame.array
 
             # ---------- Teclas (não bloqueante) ----------
             now = time.time()
+            # Solicita teclas periodicamente
             if not awaiting_reply and (now - last_req_ts) >= KEY_REQ_PERIOD:
                 try:
                     req_socket.send_pyobj({"from": MY_ID, "cmd": "key_request"})
-                    awaiting_reply = True; last_req_ts = now
+                    awaiting_reply = True
+                    last_req_ts = now
                 except Exception:
                     pass
+            # Recebe resposta de teclas, se houver
             if awaiting_reply:
                 socks = dict(poller.poll(0))
                 if req_socket in socks and socks[req_socket] == zmq.POLLIN:
@@ -349,20 +354,35 @@ def main():
                         pass
 
             key = last_key
-            toggled = (key == 'm' and prev_key != 'm'); prev_key = key
+            toggled = (key == 'm' and prev_key != 'm')
+            prev_key = key
             if toggled:
                 current_mode = MODO_MANUAL if current_mode == MODO_AUTO else MODO_AUTO
                 print(f"Modo: {current_mode}")
                 v_esq, v_dir = 0, 0
 
-            conf = 0  # default p/ HUD caso esteja no modo MANUAL
+            # Por omissão, sem confiança (para HUD)
+            conf = 0
 
-            # ----------------- CONTROLE -----------------
-            # Se estiver em estado OBSTACLE, ignoramos o controle e mantemos velocidade zero
-            if state == 'OBSTACLE':
+            # ----------------- DETECÇÃO DE OBSTÁCULO -----------------
+            # O primeiro passo é verificar se há obstáculo. Caso haja, o robô entra no estado
+            # OBSTACLE, para completamente e ignora a lógica de controle FOLLOW/LOST.
+            obst = False
+            try:
+                if ler_obstaculo_serial(arduino):
+                    obst = True
+            except Exception:
+                pass
+
+            if obst:
+                # Foi detectado um obstáculo: entra no modo OBSTACLE e para os motores
+                state = 'OBSTACLE'
                 v_esq, v_dir = 0, 0
+                lost_frames = 0
             else:
+                # Não há obstáculo à frente: segue lógica de controle automático ou manual
                 if current_mode == MODO_AUTO:
+                    # Processa a imagem apenas quando não há obstáculo
                     image, erro, conf = processar_imagem(image)
 
                     if conf == 1:
@@ -371,55 +391,50 @@ def main():
                         lost_frames = 0
                         last_err = erro
 
-                        # Agendamento de velocidade: reduz base com |erro|
+                        # Ajusta a velocidade de base de acordo com o erro para suavizar curvas
                         speed_scale = max(0.35, 1.0 - abs(erro) / float(E_MAX_PIX))
                         base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
                         v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
                     else:
-                        # Sem detecção: acumula perda até declarar LOST
+                        # Nenhuma linha detectada: incrementa contador de quadros perdidos
                         lost_frames += 1
                         if lost_frames >= LOST_MAX_FRAMES:
                             state = 'LOST'
 
                         if state == 'LOST':
-                            # Busca ativa: gira para o lado do último erro conhecido
+                            # Em LOST, gira no lugar para procurar a linha na direção do último erro
                             turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                             v_esq, v_dir = int(turn), int(-turn)
                         else:
-                            # Janela de tolerância antes de declarar LOST: anda devagar e reto
+                            # Janela antes de LOST: anda lentamente para frente
                             base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                             v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
                 else:
-                    # MODO_MANUAL
-                    if key == 'w':   v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
-                    elif key == 's': v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
-                    elif key == 'a': v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
-                    elif key == 'd': v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
-                    elif key != '':  v_esq, v_dir = 0, 0
+                    # Modo manual: controla conforme teclas se não há obstáculo
+                    if key == 'w':
+                        v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
+                    elif key == 's':
+                        v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
+                    elif key == 'a':
+                        v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
+                    elif key == 'd':
+                        v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
+                    elif key != '':
+                        v_esq, v_dir = 0, 0
 
+            # Envia comandos de motor (sempre envia, parando se necessário)
             enviar_comando_motor_serial(arduino, v_esq, v_dir)
-
-            # ---------------- OBSTACULO ----------------
-            # Se o firmware indicar obstáculo (string "OB"), apenas entra no estado
-            # OBSTACLE e pára o robô. Não executa mais nenhum movimento de ré ou giro.
-            if ler_obstaculo_serial(arduino):
-                state = 'OBSTACLE'
-                # Envia zero aos motores para garantir parada imediata
-                enviar_comando_motor_serial(arduino, 0, 0)
-                v_esq, v_dir = 0, 0
-                # Não executa a rotina de ré/giro; o robô permanece parado enquanto
-                # o estado for OBSTACLE. O controle de linha será suspenso até a
-                # saída deste estado.
 
             # ---------------- VISUALIZAÇÃO ----------------
             display_frame = image.copy()
             mask = build_binary_mask(display_frame)
             intersections, detected_lines = detect_intersections(mask)
 
+            # Aplica colormap à máscara para overlay
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
             display_frame = cv2.addWeighted(display_frame, 0.7, mask_color, 0.3, 0)
 
-            # desenha linhas (verde)
+            # Desenha linhas detectadas (verde)
             for rho, theta in detected_lines:
                 a, b = np.cos(theta), np.sin(theta)
                 x0, y0 = a * rho, b * rho
@@ -427,19 +442,22 @@ def main():
                 x2 = int(x0 - 1000 * (-b));  y2 = int(y0 - 1000 * (a))
                 cv2.line(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            # interseções (vermelho)
+            # Desenha interseções detectadas (círculos vermelhos)
             for idx, (x, y) in enumerate(intersections, 1):
                 cv2.circle(display_frame, (x, y), 8, (0, 0, 255), -1)
                 cv2.circle(display_frame, (x, y), 12, (255, 255, 255), 2)
                 cv2.putText(display_frame, f"{idx}", (x + 15, y - 15),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
+            # Informações de HUD
             cv2.putText(display_frame, f"Modo: {current_mode}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
             cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
+            # Cor do estado: vermelho para OBSTACLE, azul/laranja para outros
+            state_color = (0, 0, 255) if state == 'OBSTACLE' else (0, 200, 255)
             cv2.putText(display_frame, f"State: {state}", (10, 85),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 1)
             cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 105),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
             cv2.putText(display_frame, f"Intersections: {len(intersections)}", (10, 125),
@@ -447,11 +465,19 @@ def main():
             cv2.putText(display_frame, f"Conf: {conf}  LostFrames: {lost_frames}", (10, 145),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
 
+            # Exibe texto adicional de alerta quando em OBSTACLE
+            if state == 'OBSTACLE':
+                h, w = display_frame.shape[:2]
+                cv2.putText(display_frame, "OBSTACLE DETECTED", (w//4, 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+            # Codifica e envia o frame via ZMQ
             _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             pub_socket.send(base64.b64encode(buffer))
             raw.truncate(0)
 
     finally:
+        # Encerramento: para motores e fecha conexões
         print("Encerrando...")
         try:
             enviar_comando_motor_serial(arduino, 0, 0)
