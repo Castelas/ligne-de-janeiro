@@ -51,7 +51,7 @@ TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = 180     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
-PIVOT_TIMEOUT   = 2.0   # Muito reduzido para minimizar giro excessivo
+PIVOT_TIMEOUT   = 2.1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
@@ -65,7 +65,7 @@ Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela in
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco"
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - conforme solicitado
-TURN_DURATION_S = 0.7        # Duração (segundos) para o giro - aumentado para completar 90 graus
+TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ligeiramente aumentado
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
