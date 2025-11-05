@@ -688,7 +688,7 @@ def front_left_right_corners(sx,sy,orient):
     # right_corner: interseção alcançável virando para direita
     if orient==0:  return ( (sx,sy-1),   (sx,sy+1) )     # Norte: left=Oeste, right=Leste
     if orient==1:  return ( (sx-1,sy),   (sx+1,sy) )     # Leste: left=Norte, right=Sul
-    if orient==2:  return ( (sx,sy+1),   (sx,sy-1) )     # Sul: left=Leste, right=Oeste
+    if orient==2:  return ( (sx,sy-1),   (sx,sy+1) )     # Sul: left=Oeste, right=Leste
     if orient==3:  return ( (sx+1,sy),   (sx-1,sy) )     # Oeste: left=Sul, right=Norte
     raise ValueError
 
@@ -894,7 +894,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
     print()
 
     # Verifica se já estamos no destino
-    if len(path) == 1 and path[0] == start_node:
+    if start_node == target:
         print(f"🎯 Já estamos no destino ({start_node[0]},{start_node[1]})!")
         return cur_node,cur_dir,True
 
