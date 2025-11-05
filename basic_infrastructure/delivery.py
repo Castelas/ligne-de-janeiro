@@ -10,7 +10,7 @@ import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
-THRESHOLD_VALUE = 160  # Reduzido para detectar linhas válidas novamente
+THRESHOLD_VALUE = 180  # Aumentado para reduzir detecção de chão/ruído novamente
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
@@ -92,13 +92,32 @@ def _dedup_points(points, radius=25):
 def build_binary_mask(image_bgr):
     h, w = image_bgr.shape[:2]
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Blur mais forte para reduzir ruído do chão
+    gray = cv2.GaussianBlur(gray, (7, 7), 0)
+
     _, mask = cv2.threshold(gray, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
-    k = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)
+
+    # Filtros morfológicos mais agressivos
+    k_small = np.ones((3, 3), np.uint8)  # Kernel menor para detalhes finos
+    k_large = np.ones((5, 5), np.uint8)  # Kernel maior para ruído grosso
+
+    # Erosão para remover pequenos ruídos
+    mask = cv2.erode(mask, k_small, iterations=1)
+
+    # Abertura para remover ruído e conectar componentes
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k_large, iterations=2)
+
+    # Fechamento para preencher pequenos buracos
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k_large, iterations=1)
+
+    # Dilatação final para restaurar tamanho das linhas reais
+    mask = cv2.dilate(mask, k_small, iterations=1)
+
+    # Remove parte superior da imagem (céu/ruído)
     top = int(h * ROI_CROP_FRAC)
     mask[:top, :] = 0
+
     return mask
 
 def detect_segments(mask):
@@ -155,8 +174,16 @@ def detect_intersections(mask):
     return pts, (vertical + horizontal)
 
 def processar_imagem(imagem):
+    global initial_frames_ignored
+
     h, w = imagem.shape[:2]
     cx_img = w // 2
+
+    # Ignora detecções iniciais para evitar detectar chão/ruído
+    initial_frames_ignored += 1
+    if initial_frames_ignored <= IGNORE_INITIAL_FRAMES:
+        return imagem, 0, 0  # Retorna sem detecção
+
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     if USE_ADAPTIVE:
@@ -718,6 +745,10 @@ def parse_args():
 # Variáveis globais para streaming
 stream_socket = None
 stream_context = None
+
+# Controle de detecção inicial
+initial_frames_ignored = 0
+IGNORE_INITIAL_FRAMES = 15  # Ignora primeiras 15 frames para evitar detecção de chão
 
 def init_streaming():
     """Inicializa o socket ZMQ para streaming"""
