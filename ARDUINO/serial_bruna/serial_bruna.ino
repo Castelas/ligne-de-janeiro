@@ -20,10 +20,11 @@
 
 #include "parameters.h"
 #include <Servo.h>
-#include "SR04.h"
 
 #define digitalPinToInterrupt(p)  ((p) == 2 ? 0 : ((p) == 3 ? 1 : -1))
 #define ULTRASONIC_STOP_DISTANCE_CM 15  // Define a distância em cm para parada
+unsigned long distance = 0;
+uint8_t EnPwmCmd[4]={0x44,0x02,0xbb,0x01};
 
 char feedback ;   // si non nul indique que les commandes doivent renvoyer un acquittement
 
@@ -60,7 +61,6 @@ long int v2,lv2 ;
 long int v3,lv3 ;
 int vitesse1,vitesse2 ;
 
-SR04 sr04 = SR04(ECHO_PIN,TRIG_PIN);  // gestion du capteur ultrasonore
 long a;
 int v;
 
@@ -112,7 +112,7 @@ void init_arduino() {
   task1on=false ;       
   Task2On() ;    
   task3on=false ;       
-  task4on=false ;     
+  Task4On() ;     // TIRAR E DEIXAR COMANDO SÓ
   task5on=false ;     
 }
 
@@ -123,6 +123,12 @@ void setup() {
   pinMode(motor1SNS, OUTPUT);
   pinMode(motor2PWM, OUTPUT);
   pinMode(motor2SNS, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN,INPUT);
+  for(int i=0; i<4; i++){
+    Serial.write(EnPwmCmd[i]);
+  }
+  
   tim1 = (int)millis()+del1;
   tim2 = (int)millis()+del2;
   tim3 = (int)millis()+del3;
@@ -497,11 +503,20 @@ void  INFRARED_TIME_code() {
 
 // renvoie la valeur du capteur ultrasons
 void  ULTRASON_code() {
-  a=sr04.Distance();
+  // a=sr04.Distance();
+  distance = MeasureDistance();
   if (commode==2)
     write_i16(a); 
   else
     Serial.println(a);
+}
+
+int MeasureDistance(){               // a low pull on pin COMP/TRIG  triggering a sensor reading
+  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(TRIG_PIN, HIGH);      // reading Pin PWM will output pulses
+  unsigned long distance = pulseIn(ECHO_PIN,LOW);
+  distance = distance/50;          // every 50us low level stands for 1cm
+  return distance;
 }
 
 // renvoie la tension sur le moteur
@@ -632,11 +647,11 @@ inline void task4() {
   if (((int)millis()-tim4)>0)  // se on a atteint le temps programmé
   { 
     // Lê a distância do sensor ultrassônico
-    long distance_cm = sr04.Distance();
+    distance = MeasureDistance();
 
     // Condição de parada:
     // SE (o sensor IR detecta algo) OU (o ultrassônico detecta algo muito perto)
-    if ( (analogRead(IR_pin) > 500) || (distance_cm > 0 && distance_cm < ULTRASONIC_STOP_DISTANCE_CM) )
+    if ( distance > 0 && distance < ULTRASONIC_STOP_DISTANCE_CM )
     {
       // Se um obstáculo for detectado por qualquer um dos sensores:
       obst = true;             // 1. Ativa a flag de obstáculo
