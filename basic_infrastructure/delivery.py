@@ -14,7 +14,7 @@ SERVER_IP = "192.168.137.176"  # IP do computador que roda o server.py
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
-THRESHOLD_VALUE = 150  # Voltar para valor anterior que funcionava
+THRESHOLD_VALUE = 160  # Ajuste fino para melhor detecção
 HOUGHP_THRESHOLD    = 35
 HOUGHP_MINLEN_FRAC  = 0.35
 HOUGHP_MAXGAP       = 20
