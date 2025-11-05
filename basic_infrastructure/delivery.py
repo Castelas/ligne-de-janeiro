@@ -306,14 +306,22 @@ def straight_until_seen_then_lost(arduino, camera):
 
 def spin_in_place_until_seen(arduino, camera, side_hint='L'):
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
-    turn_sign = -1 if side_hint=='L' else +1
+    if side_hint == 'F':
+        # Não virar, apenas esperar ver a linha
+        turn_sign = 0
+    else:
+        turn_sign = -1 if side_hint=='L' else +1
     seen_cnt=0; t0=time.time()
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
             img_display, err, conf = processar_imagem(img)
-            v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
-            drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
+            if side_hint == 'F':
+                # Parado, apenas esperando
+                drive_cap(arduino, 0, 0)
+            else:
+                v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
+                drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
 
             # Enviar frame para o stream durante o pivot
             mask = build_binary_mask(img_display)
@@ -708,10 +716,30 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, path=N
     left_corner, right_corner = front_left_right_corners(sx, sy, cur_dir)
     dl = manhattan(left_corner, target)
     dr = manhattan(right_corner, target)
-    side_hint = 'L' if dl <= dr else 'R'
-    chosen = left_corner if side_hint=='L' else right_corner
 
-    print(f"   Escolhendo canto {chosen} (virada: {'esquerda' if side_hint=='L' else 'direita'})")
+    # Verificar se algum corner está exatamente à frente
+    front_corner = None
+    if cur_dir == 0:  # Norte
+        front_corner = (sx, sy)
+    elif cur_dir == 1:  # Leste
+        front_corner = (sx+1, sy)
+    elif cur_dir == 2:  # Sul
+        front_corner = (sx+1, sy)
+    elif cur_dir == 3:  # Oeste
+        front_corner = (sx, sy)
+
+    if front_corner == left_corner and dl <= dr:
+        side_hint = 'F'  # Frente
+        chosen = left_corner
+    elif front_corner == right_corner and dr < dl:
+        side_hint = 'F'  # Frente
+        chosen = right_corner
+    else:
+        side_hint = 'L' if dl <= dr else 'R'
+        chosen = left_corner if side_hint=='L' else right_corner
+
+    turn_desc = {'F':'reto (à frente)', 'L':'esquerda', 'R':'direita'}[side_hint]
+    print(f"   Escolhendo canto {chosen} (virada: {turn_desc})")
     print(f"   Distância Manhattan: {dl} vs {dr}")
 
     # Reta cega
