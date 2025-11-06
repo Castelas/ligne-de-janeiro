@@ -801,6 +801,8 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
                             action_start_time = time.time()
                             approach_start_time = 0.0
                             last_known_y = -1.0
+                            raw.truncate(0)
+                            raw.seek(0)
                             continue
 
                     if lost_frames >= LOST_MAX_FRAMES:
