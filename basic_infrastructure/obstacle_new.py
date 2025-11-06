@@ -39,7 +39,7 @@ MODO_MANUAL = "MANUAL"
 # Ajustes (detecção/recuperação)
 E_MAX_PIX       = IMG_WIDTH // 2        # erro máximo usado para escalonar velocidade
 V_MIN           = 0                     # velocidade mínima admitida no AUTO
-SEARCH_SPEED    = 120                   # velocidade para girar no lugar em LOST
+SEARCH_SPEED    = 80                   # velocidade para girar no lugar em LOST
 LOST_MAX_FRAMES = 5                     # frames sem confiança até entrar em LOST
 DEAD_BAND       = 6                     # |erro| <= DEAD_BAND => erro = 0
 ROI_BOTTOM_FRAC = 0.55                  # início da ROI inferior (55% da altura)
