@@ -39,7 +39,7 @@ BASE_STRAIGHT_SPEED = 130
 BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
 BASE_TURN_DURATION = 0.75
-BASE_UTURN_DURATION = 1.55
+BASE_UTURN_RATIO = 1.85  # Fator sobre o tempo de giro de 90° (ajustável)
 BASE_APPROACH_FLOOR = 100
 BASE_APPROACH_LOST = 110
 BASE_CELEBRATION_WIGGLE = 130
@@ -105,7 +105,7 @@ speed_multiplier_for_time = max(speed_multiplier, 0.7)
 CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
 turn_speed_gain = max(TURN_SPEED / float(BASE_TURN_SPEED), 0.1)
 TURN_DURATION_S = float(np.clip(BASE_TURN_DURATION / turn_speed_gain, 0.35, 1.2))
-UTURN_DURATION_S = float(np.clip(BASE_UTURN_DURATION / turn_speed_gain, 0.9, 2.5))
+UTURN_DURATION_S = float(np.clip((BASE_UTURN_RATIO * TURN_DURATION_S), 0.8, 2.3))
 STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
