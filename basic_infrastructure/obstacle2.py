@@ -333,7 +333,7 @@ def main():
         # Timeout pode ser maior agora, pois não bloqueia o loop principal
         arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.5)
         time.sleep(2)
-        command_queue.put(b'A10\n') # Conecta com feedback
+        command_queue.put(b'A00\n') # Conecta com feedback
         print(f"Arduino: {arduino.readline().decode('utf-g').strip()}") # Leitura inicial OK
     except Exception as e:
         print(f"Falha na inicialização do Arduino: {e}")
