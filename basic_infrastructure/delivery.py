@@ -73,6 +73,7 @@ BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseç�
 BORDER_Y_TARGET_STOP_FRAC = 0.88    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
 INTERSECTION_MEMORY_GROW_FRAC_PER_S = 1.10  # Fração de altura que projetamos por segundo quando só temos memória
+APPROACH_TIMEOUT_S = 2.5            # Tempo máximo preso em APPROACHING antes de forçar parada
 
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
@@ -472,6 +473,7 @@ def go_to_next_intersection(arduino, camera):
     # Estados: 'FOLLOW', 'LOST', 'APPROACHING', 'STOPPING', 'STOPPED'
     state = 'FOLLOW'
     action_start_time = 0.0
+    approach_start_time = 0.0
     last_known_y = -1.0  # Última posição Y válida da interseção
     last_intersection_point = None
     last_intersection_y = -1.0
@@ -583,6 +585,7 @@ def go_to_next_intersection(arduino, camera):
                 if target_y != -1.0 and target_y >= Y_START_SLOWING:
                     print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
                     state = 'APPROACHING'
+                    approach_start_time = now
                     last_known_y = target_y
                     lost_frames = 0
                 elif conf == 0:
@@ -594,6 +597,7 @@ def go_to_next_intersection(arduino, camera):
                             if threshold_hit:
                                 print("   ❌ Linha perdida (FOLLOW). Mudando para LOST.")
                             state = 'LOST'
+                            approach_start_time = 0.0
                             last_known_y = -1.0
                         else:
                             lost_frames = min(lost_frames, LOST_MAX_FRAMES)
@@ -618,6 +622,7 @@ def go_to_next_intersection(arduino, camera):
                             if threshold_hit:
                                 print("   ❌ Linha perdida durante aproximação. Mudando para LOST.")
                             state = 'LOST'
+                            approach_start_time = 0.0
                             last_known_y = -1.0
                         else:
                             lost_frames = min(lost_frames, LOST_MAX_FRAMES)
@@ -636,6 +641,7 @@ def go_to_next_intersection(arduino, camera):
                             print("   🛑 Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
                             state = 'STOPPING'
                             action_start_time = time.time()
+                            approach_start_time = 0.0
                             last_known_y = -1.0  # Reseta para a próxima
 
                     # GATILHO 2: Interseção desapareceu completamente (backup)
@@ -643,7 +649,17 @@ def go_to_next_intersection(arduino, camera):
                         print(f"   🛑 Interseção desapareceu (era Y={last_known_y:.0f}). Parando...")
                         state = 'STOPPING'
                         action_start_time = time.time()
+                        approach_start_time = 0.0
                         last_known_y = -1.0  # Reseta para a próxima
+
+                if state == 'APPROACHING' and approach_start_time > 0.0:
+                    elapsed_approach = now - approach_start_time
+                    if elapsed_approach > APPROACH_TIMEOUT_S:
+                        print(f"   ⏱️ Approaching timeout ({elapsed_approach:.1f}s). Forçando parada.")
+                        state = 'STOPPING'
+                        action_start_time = now
+                        approach_start_time = 0.0
+                        last_known_y = -1.0
 
             elif state == 'STOPPING':
                 if (time.time() - action_start_time) > CRAWL_DURATION_S:
@@ -655,6 +671,7 @@ def go_to_next_intersection(arduino, camera):
                     print("   ✅ Linha reencontrada.")
                     state = 'FOLLOW'
                     lost_frames = 0
+                    approach_start_time = 0.0
                     last_err = erro
                     last_known_y = -1.0
 
@@ -671,6 +688,7 @@ def go_to_next_intersection(arduino, camera):
                 if conf == 0:
                     # Continua reto em velocidade reduzida
                     base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
+                    base_speed = max(base_speed, CRAWL_SPEED)
                     v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
                 else:
                     # Frenagem gradual baseada em last_known_y
