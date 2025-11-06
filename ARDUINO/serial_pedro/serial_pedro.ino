@@ -23,7 +23,6 @@
 
 #define digitalPinToInterrupt(p)  ((p) == 2 ? 0 : ((p) == 3 ? 1 : -1))
 #define ULTRASONIC_STOP_DISTANCE_CM 15  // Define a distância em cm para parada
-unsigned long distance = 0;
 char feedback ;   // si non nul indique que les commandes doivent renvoyer un acquittement
 
 // gestion du multitache.
@@ -553,7 +552,7 @@ Serial.println(analogRead(IR_pin)); }
 // renvoie la valeur du capteur ultrasons
 void  ULTRASON_code() {
   // a=sr04.Distance();
-  distance = MeasureDistance();
+  unsigned long distance = MeasureDistance();
 if (commode==2)
     write_i16(distance); 
   else
