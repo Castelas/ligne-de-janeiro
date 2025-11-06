@@ -566,10 +566,10 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
     intersection_last_live_y = -1.0
     intersection_last_live_time = 0.0
     intersection_descent_confident = False
-    last_stop_candidate_is_border = False
-    current_stop_is_border = False
-
     planned_border = None if expected_node is None else is_border_node(expected_node)
+
+    last_stop_candidate_is_border = bool(planned_border)
+    current_stop_is_border = bool(planned_border)
 
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
@@ -958,17 +958,19 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
 # ====================== Planejamento e Execução ======================
 def manhattan(a,b): return abs(a[0]-b[0])+abs(a[1]-b[1])
 
-def front_left_right_corners(sx,sy,orient):
-    # Retorna (left_corner, right_corner) relativos à direção de movimento
-    # left_corner: interseção alcançável virando para esquerda
-    # right_corner: interseção alcançável virando para direita
-    # Interseções acessíveis baseadas no quadrado (sx,sy)
-    # Para quadrado X,Y: interseções são (X,Y), (X,Y+1), (X+1,Y), (X+1,Y+1)
-    # Mas acessíveis dependem da orientação
-    if orient==0:  return ( (sx,sy),     (sx+1,sy) )     # Norte: (X,Y)  ↶ / (X+1,Y) ↷
-    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y) ↶ / (X+1,Y+1) ↷
-    if orient==2:  return ( (sx+1,sy+1), (sx,sy+1) )   # Sul: (X+1,Y+1) ↶ / (X,Y+1) ↷
-    if orient==3:  return ( (sx,sy+1),   (sx,sy) )     # Oeste: (X,Y+1) ↶ / (X,Y) ↷
+def front_left_right_corners(sx, sy, orient):
+    """Mapeia o quadrado atual para as duas interseções alcançáveis pelo pivô."""
+
+    # Para cada orientação consideramos os dois cantos "à frente" do robô.
+    # O primeiro elemento da tupla representa virar à esquerda; o segundo, virar à direita.
+    if orient == 0:   # Norte
+        return ((sx, sy), (sx, sy + 1))
+    if orient == 1:   # Leste
+        return ((sx + 1, sy), (sx + 1, sy + 1))
+    if orient == 2:   # Sul
+        return ((sx + 1, sy + 1), (sx + 1, sy))
+    if orient == 3:   # Oeste
+        return ((sx + 1, sy), (sx, sy))
     raise ValueError
 
 def get_accessible_intersections(sx, sy, orient):
