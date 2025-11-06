@@ -39,9 +39,9 @@ BASE_TURN_SPEED = 150
 BASE_STRAIGHT_SPEED = 110
 BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
-BASE_BORDER_CRAWL_DURATION = 0.10
+BASE_BORDER_CRAWL_DURATION = 0.06
 BASE_TURN_DURATION = 0.75
-BASE_UTURN_RATIO = 1.85  # Fator sobre o tempo de giro de 90° (ajustável)
+BASE_UTURN_RATIO = 1.72  # Fator sobre o tempo de giro de 90° (ajustável)
 BASE_APPROACH_FLOOR = 100
 BASE_APPROACH_LOST = 110
 BASE_CELEBRATION_WIGGLE = 130
@@ -122,11 +122,12 @@ STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
 BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseções somem antes)
-BORDER_Y_TARGET_STOP_FRAC = 0.82    # Alvo mais alto: bordas somem bem antes do limite inferior
+BORDER_Y_TARGET_STOP_FRAC = 0.74    # Alvo mais alto: bordas somem bem antes do limite inferior
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
-INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.90  # Fração de altura projetada por segundo quando só temos memória
-INTERSECTION_MEMORY_EXTRA_FRAC = 0.018        # Limite adicional (em fração da altura) acima do último Y real
-BORDER_INTERSECTION_MEMORY_EXTRA_FRAC = 0.045  # Limite extra maior nas bordas
+INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.70  # Fração de altura projetada por segundo quando só temos memória
+INTERSECTION_MEMORY_EXTRA_FRAC = 0.012        # Limite adicional (em fração da altura) acima do último Y real
+BORDER_INTERSECTION_MEMORY_EXTRA_FRAC = 0.028  # Limite extra maior nas bordas
+INTERSECTION_BORDER_STOP_PAD_FRAC = 0.020     # Margem adicional acima do último Y visto ao usar memória
 INTERSECTION_DESCENT_MIN_FRAMES = 5          # Nº mínimo de frames vendo a intersecção descer
 INTERSECTION_DESCENT_TOL_PX = 6             # Tolerância para pequenas oscilações de Y
 INTERSECTION_DESCENT_MIN_DELTA_FRAC = 0.08   # Descida mínima (em fração da altura) para confiar na memória longa
@@ -729,6 +730,11 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
             Y_START_SLOWING = h * y_start_frac
             Y_TARGET_STOP = h * y_target_frac
 
+            if is_border_intersection and intersection_last_live_y >= 0:
+                pad_y = intersection_last_live_y + INTERSECTION_BORDER_STOP_PAD_FRAC * h
+                min_stop = max(Y_START_SLOWING + 4.0, pad_y)
+                Y_TARGET_STOP = min(Y_TARGET_STOP, min_stop)
+
             recent_intersection = (
                 target_intersection is not None or
                 (last_intersection_point is not None and (now - last_intersection_time) <= INTERSECTION_MEMORY_S)
@@ -919,7 +925,14 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
             elif state == 'STOPPING': state_color = (255, 0, 255)  # Magenta
             elif state == 'STOPPED': state_color = (255, 0, 0)  # Azul
 
-            cv2.putText(display_frame, f"State: {state}", (10, 30),
+            approaching_border = (
+                current_stop_is_border
+                or (planned_border is True)
+                or (planned_border is None and is_border_intersection)
+            )
+            hud_state = "APPROACHING B." if (state == 'APPROACHING' and approaching_border) else state
+
+            cv2.putText(display_frame, f"State: {hud_state}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, state_color, 2)
             cv2.putText(display_frame, f"Conf: {conf}  Lost: {lost_frames}", (10, 55),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
