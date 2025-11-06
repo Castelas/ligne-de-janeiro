@@ -305,32 +305,51 @@ def calcular_velocidades_auto(erro, base_speed):
     v_dir = int(np.clip(v_dir, 60, VELOCIDADE_MAX))
     return v_esq, v_dir
 
-# #################### INÍCIO DA MUDANÇA 1 ####################
-# Modificada para ler a resposta "OK" e manter o buffer serial limpo
-def enviar_comando_motor_serial(arduino, v_esq, v_dir):
-    comando = f"C {v_dir} {v_esq}\n"
-    arduino.write(comando.encode('utf-8'))
-    try:
-        # Ler a resposta ("OK") para manter o buffer limpo
-        resposta = arduino.readline().decode('utf-8').strip()
-        return resposta 
-    except Exception as e:
-        return ""
 
-# #################### INÍCIO DA MUDANÇA 2 ####################
-# Nova função para pedir a distância do ultrassom (copiada do robot_obstacle.py)
-def get_ultrasonic_distance(arduino):
-    """ Envia comando 'S' e lê a distância do ultrassom. """
+# #################### INÍCIO DA MUDANÇA ####################
+# Esta é a ÚNICA função que se comunica com o Arduino.
+# Ela faz a transação completa: Motor + Ultrassom.
+def enviar_comando_motor_serial(arduino, v_esq, v_dir):
+    """
+    Envia o comando do motor E TAMBÉM pede a distância do ultrassom
+    para manter a comunicação serial sincronizada.
+    """
+    comando = f"C {v_dir} {v_esq}\n"
+    resposta_motor = ""
+    resposta_dist = ""
+    
     try:
-        # Limpa qualquer lixo no buffer de entrada antes de enviar o comando
-        arduino.reset_input_buffer()
-        arduino.write(b'S\n') # Solicita a distancia (ULTRASON_code)
-        resposta = arduino.readline().decode('utf-8').strip()
-        return int(resposta) # Retorna a distancia como inteiro
+        # 1. Enviar comando do motor
+        arduino.write(comando.encode('utf-8'))
+        # 2. Ler a resposta do motor ("OK")
+        resposta_motor = arduino.readline().decode('utf-8').strip()
+
+        # 3. Enviar comando do ultrassom
+        arduino.write(b'S\n')
+        # 4. Ler a resposta do ultrassom (distância)
+        resposta_dist = arduino.readline().decode('utf-8').strip()
+        
+        # 5. Imprimir a telemetria
+        # Tenta converter para int para checar se é um número válido
+        try:
+            dist_int = int(resposta_dist)
+            print(f"Distancia: {dist_int} cm (Motor ACK: {resposta_motor})")
+        except ValueError:
+            # A resposta da distância não foi um número!
+            print(f"!! ERRO DE SINC Abia: Esperava Distancia, recebeu: '{resposta_dist}' (Motor ACK: {resposta_motor})")
+            
+        return resposta_motor # Retorna o "OK"
+        
     except Exception as e:
-        # print(f"Erro ao ler ultrassom: {e}") # Descomente para depurar
-        return -1 # Retorna -1 em caso de erro
-# #################### FIM DAS MUDANÇAS 1 E 2 ####################
+        # Se der erro (ex: timeout), imprime tudo
+        print(f"!! ERRO SERIAL GRAVE: {e} !!")
+        print(f"   Comando: {comando.strip()}")
+        print(f"   Resposta Motor: {resposta_motor}")
+        print(f"   Resposta Dist: {resposta_dist}")
+        return "" # Falha
+
+# REMOVEMOS a função get_ultrasonic_distance()
+# #################### FIM DA MUDANÇA ####################
 
 
 # ====================== Utilidades ======================
@@ -368,17 +387,13 @@ def straight_until_seen_then_lost(arduino, camera):
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
-
-            # #################### INÍCIO DA MUDANÇA 3 (Leitura Ultrassom) ####################
-            distancia_atual = get_ultrasonic_distance(arduino)
-            if distancia_atual != -1:
-                print(f"Distancia do Ultrassom: {distancia_atual} cm")
-            # #################### FIM DA MUDANÇA 3 ####################
+            
+            # REMOVEMOS A CHAMADA get_ultrasonic_distance() DAQUI
             
             mask=build_binary_mask(img)
             h,w=mask.shape[:2]
-            y0=int(h*ROW_BAND_TOP_FRAC); y1=int(h*ROW_BAND_BOTTOM_FRAC)
             # ... (resto da função straight_until_seen_then_lost sem alteração) ...
+            y0=int(h*ROW_BAND_TOP_FRAC); y1=int(h*ROW_BAND_BOTTOM_FRAC)
             band=mask[y0:y1,:]
             band=cv2.morphologyEx(band, cv2.MORPH_CLOSE, np.ones((5,11),np.uint8), iterations=1)
             row_frac = band.sum(axis=1)/(255.0*w)
@@ -394,7 +409,7 @@ def straight_until_seen_then_lost(arduino, camera):
 
             # Mantém velocidade inicial até ver a linha
             current_speed = initial_speed if not saw else START_SPEED
-            drive_cap(arduino, current_speed, current_speed)
+            drive_cap(arduino, current_speed, current_speed) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
 
             if not saw:
                 if present: saw=True; lost=0
@@ -423,15 +438,11 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img=f.array
 
-            # #################### INÍCIO DA MUDANÇA 4 (Leitura Ultrassom) ####################
-            distancia_atual = get_ultrasonic_distance(arduino)
-            if distancia_atual != -1:
-                print(f"Distancia do Ultrassom: {distancia_atual} cm")
-            # #################### FIM DA MUDANÇA 4 ####################
+            # REMOVEMOS A CHAMADA get_ultrasonic_distance() DAQUI
 
             img_display, err, conf = processar_imagem(img)
             v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
-            drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
+            drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             
             # ... (resto da função spin_in_place_until_seen sem alteração) ...
             # Enviar frame para o stream durante o pivot
@@ -473,11 +484,7 @@ def forward_align_on_line(arduino, camera):
             frame_count += 1
             img=f.array
             
-            # #################### INÍCIO DA MUDANÇA 5 (Leitura Ultrassom) ####################
-            distancia_atual = get_ultrasonic_distance(arduino)
-            if distancia_atual != -1:
-                print(f"Distancia do Ultrassom: {distancia_atual} cm")
-            # #################### FIM DA MUDANÇA 5 ####################
+            # REMOVEMOS A CHAMADA get_ultrasonic_distance() DAQUI
 
             _, erro, conf = processar_imagem(img)
 
@@ -501,7 +508,7 @@ def forward_align_on_line(arduino, camera):
                     v_esq, v_dir = ALIGN_BASE, ALIGN_BASE
                     print(f"      Frame {frame_count}: Sem linha | vel=reto (tolerancia: {effective_lost_max})")
 
-            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
+            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
 
             # Criar frame para visualização
             display_frame = img.copy()
@@ -597,11 +604,7 @@ def go_to_next_intersection(arduino, camera):
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img = f.array
             
-            # #################### INÍCIO DA MUDANÇA 6 (Leitura Ultrassom) ####################
-            distancia_atual = get_ultrasonic_distance(arduino)
-            if distancia_atual != -1:
-                print(f"Distancia do Ultrassom: {distancia_atual} cm")
-            # #################### FIM DA MUDANÇA 6 ####################
+            # REMOVEMOS A CHAMADA get_ultrasonic_distance() DAQUI
             
             mask = build_binary_mask(img)
             img, erro, conf = processar_imagem(img)
@@ -832,7 +835,7 @@ def go_to_next_intersection(arduino, camera):
                 turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                 v_esq, v_dir = int(turn), int(-turn)
 
-            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
+            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
 
             # ---------------- VISUALIZAÇÃO ----------------
             display_frame = img.copy()
@@ -1036,12 +1039,7 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, target
                 break
             img_temp = f.array
             
-            # #################### INÍCIO DA MUDANÇA 7 (Leitura Ultrassom) ####################
-            # Adicionado também neste pequeno loop de alinhamento
-            distancia_atual = get_ultrasonic_distance(arduino)
-            if distancia_atual != -1:
-                print(f"Distancia do Ultrassom: {distancia_atual} cm")
-            # #################### FIM DA MUDANÇA 7 ####################
+            # REMOVEMOS A CHAMADA get_ultrasonic_distance() DAQUI
 
             _, erro, conf = processar_imagem(img_temp)
 
@@ -1105,7 +1103,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
 
     print(f"🚶🏁 Chegando na primeira interseção {start_node} vindo do {dir_name(actual_arrival_dir)}")
 
-    drive_cap(arduino,0,0); time.sleep(0.1)
+    drive_cap(arduino,0,0); time.sleep(0.1) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
 
     # Mostra o caminho completo
     print("🗺️  CAMINHO CALCULADO PELO A*:")
@@ -1140,7 +1138,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         print(f"   📍 cur_dir={cur_dir}, want={want}, rel={rel}")
 
         # ⚠️  IMPORTANTE: Para completamente antes de virar
-        drive_cap(arduino, 0, 0); time.sleep(0.3)
+        drive_cap(arduino, 0, 0); time.sleep(0.3) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
         print(f"   🛑 Parado para executar giro")
 
         # Executa a ação baseada no giro relativo (lógica do robot_pedro.py)
@@ -1152,29 +1150,29 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         elif rel == 'L':
             # TURN_LEFT: Virar 90° esquerda
             print(f"   ↪️  Virando esquerda: drive_cap({arduino}, {-TURN_SPEED}, {TURN_SPEED}) por {TURN_DURATION_S}s")
-            drive_cap(arduino, -TURN_SPEED, TURN_SPEED)
+            drive_cap(arduino, -TURN_SPEED, TURN_SPEED) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             time.sleep(TURN_DURATION_S)
             print(f"   🛑 Parando giro esquerdo...")
-            drive_cap(arduino, 0, 0); time.sleep(0.3)
+            drive_cap(arduino, 0, 0); time.sleep(0.3) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             print("   ✅ Virou esquerda")
             cur_dir = want
 
         elif rel == 'R':
             # TURN_RIGHT: Virar 90° direita
             print(f"   ↩️  Virando direita: drive_cap({arduino}, {TURN_SPEED}, {-TURN_SPEED}) por {TURN_DURATION_S}s")
-            drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
+            drive_cap(arduino, TURN_SPEED, -TURN_SPEED) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             time.sleep(TURN_DURATION_S)
             print(f"   🛑 Parando giro direito...")
-            drive_cap(arduino, 0, 0); time.sleep(0.3)
+            drive_cap(arduino, 0, 0); time.sleep(0.3) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             print("   ✅ Virou direita")
             cur_dir = want
 
         elif rel == 'U':
             # U-turn: Meia-volta (180°)
             print("   🔄 Fazendo meia-volta...")
-            drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
+            drive_cap(arduino, TURN_SPEED, -TURN_SPEED) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             time.sleep(UTURN_DURATION_S)
-            drive_cap(arduino, 0, 0); time.sleep(0.4)
+            drive_cap(arduino, 0, 0); time.sleep(0.4) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             print("   ✅ Meia-volta completa")
             cur_dir = want
 
@@ -1285,7 +1283,8 @@ def main():
 
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
-        # Nenhuma alteração aqui, 'A10\n' é o correto para ligar o feedback
+        # AQUI É ONDE O 'A10' (feedback=1, commode=0) é enviado.
+        # Isso é crucial para o 'serial_bruna.ino'
         arduino.write(b'A10\n')
         try: print("Arduino:", arduino.readline().decode('utf-8').strip())
         except Exception: pass
