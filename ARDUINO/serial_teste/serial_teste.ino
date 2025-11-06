@@ -20,26 +20,10 @@
 
 #include "parameters.h"
 #include <Servo.h>
-//#include "SR04.h"
-// ------------------- Ultrasonic emergency detection config -------------------
-// Define trigger and echo pins for the HC‑SR04 ultrasonic sensor.  These pins
-// must match the hardware wiring (for example, TRIG on digital 10 and ECHO on 11).
-#define ULTRA_TRIG_PIN 10
-#define ULTRA_ECHO_PIN 11
-// Threshold distance (in cm) below which the robot should perform an emergency stop.
-// If the measured distance is ≤ ULTRA_EMERGENCY_CM, an obstacle is considered too close.
-#define ULTRA_EMERGENCY_CM 10
-// Distance above which we consider the path clear and can exit the emergency state.
-#define ULTRA_CLEAR_CM 12
-
-// Ultrasonic emergency state flag.  True while an obstacle is closer than the threshold.
-volatile bool ultra_obst = false;
-// Timestamp of the last ultrasonic check, used to rate‑limit the sensor reading.
-unsigned long last_ultra_check_ms = 0;
-// Timestamp of the last "OB" message sent to the Raspberry Pi to avoid spamming.
-unsigned long last_us_ob_tx_ms = 0;
 
 #define digitalPinToInterrupt(p)  ((p) == 2 ? 0 : ((p) == 3 ? 1 : -1))
+#define ULTRASONIC_STOP_DISTANCE_CM 15  // Define a distância em cm para parada
+unsigned long distance = 0;
 
 char feedback ;   // si non nul indique que les commandes doivent renvoyer un acquittement
 
@@ -76,7 +60,6 @@ long int v2,lv2 ;
 long int v3,lv3 ;
 int vitesse1,vitesse2 ;
 
-SR04 sr04 = SR04(ECHO_PIN,TRIG_PIN);  // gestion du capteur ultrasonore
 long a;
 int v;
 
@@ -128,7 +111,7 @@ void init_arduino() {
   task1on=false ;       
   Task2On() ;    
   task3on=false ;       
-  task4on=false ;     
+  task4on=false ;
   task5on=false ;     
 }
 
@@ -139,11 +122,10 @@ void setup() {
   pinMode(motor1SNS, OUTPUT);
   pinMode(motor2PWM, OUTPUT);
   pinMode(motor2SNS, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  digitalWrite(TRIG_PIN,HIGH);
+  pinMode(ECHO_PIN,INPUT);
 
-  // Configure ultrasonic sensor pins (emergency stop)
-  pinMode(ULTRA_TRIG_PIN, OUTPUT);
-  pinMode(ULTRA_ECHO_PIN, INPUT);
-  digitalWrite(ULTRA_TRIG_PIN, LOW);
   tim1 = (int)millis()+del1;
   tim2 = (int)millis()+del2;
   tim3 = (int)millis()+del3;
@@ -172,8 +154,7 @@ void loop() {
     if (CharIn=='A') CONNECT_code();        // demande de connection
     else if (ConnOn)     decod_serial(CharIn);  // on ne fait un decodage de commande que si on est connecté
   }
-  // Vérifie l'ultrason pour un arrêt d'urgence
-  check_ultrasonic_emergency();
+
   // lancement des differentes taches périodiques
   if (task1on) task1() ;   // tache periodique non définie
   if (task2on) task2() ;      // tache de calcul de la vitesse moteur toujours en route
@@ -255,9 +236,7 @@ void write_i32(long num)
 
 // code de mise en route de moteur
 inline void set_motor(char MPWM, char MSNS, char sns, int nivm)
-{
-    // Si un obstacle IR ou ultrason a été détecté, force la commande à zéro.
-    if (obst==true || ultra_obst) nivm=0 ; // si on a un obstacle
+{ if (obst==true) nivm=0 ; // si on n'a pas d'obstcle
     analogWrite(MPWM,abs(nivm));
     digitalWrite(MSNS,sns?(nivm>=0?0:1):(nivm>=0?1:0)) ;
 }
@@ -279,14 +258,9 @@ inline void set_motor2(int nivm)
 // routine renvoyant le message d'acquitement simple (OK ou OBstacle)
 inline void RetAcquitSimpl()
 {
-    // En mode acquitement (feedback==1), renvoie "OK" si aucun obstacle n'est actif,
-    // sinon renvoie "OB".
-    if (feedback==1) {
-        if (!obst && !ultra_obst)
-            Serial.println("OK");
-        else
-            Serial.println("OB");
-    }
+    if (feedback==1) 
+      if (obst==false) Serial.println("OK"); 
+      else Serial.println("OB");
 }
 
 
@@ -341,14 +315,13 @@ void SINGLEMOTOR_code() {
     GetLong(0);
     set_motor(motA,motB,s,nivM) ;  // envoie la commande au moteur
     RetAcquitSimpl();     // acquitement de la commande en mode feedback=1
-    if (feedback==2) {
-      if (!obst && !ultra_obst) {
+    if (feedback==2)
+      if (obst==false)
+      {
         sprintf(retstring,"OK Moteur %c mis à la tension : %d",m,nivM);
-        Serial.println(retstring);
-      } else {
-        Serial.println("OB stacle détecté moteur non allumé");
-      }
-    }
+        Serial.println(retstring); }
+      else 
+        Serial.println("OB stacle détecté moteur non allumé"); 
   }
   else
   { Serial.readString() ;
@@ -374,14 +347,13 @@ void DUALMOTOR_code() {
 
   //reponse de la commande
   RetAcquitSimpl();
-  if (feedback==2) {
-    if (!obst && !ultra_obst) {
+  if (feedback==2)
+    if (obst==false)
+    { 
       sprintf(retstring,"OK Moteurs mis aux tensions : %d %d",nivM1,nivM2);
-      Serial.println(retstring);
-    } else {
-      Serial.println("OB stacle détecté moteur non allumé");
-    }
-  }
+      Serial.println(retstring); }
+    else 
+      Serial.println("OB stacle détecté moteur non allumé"); 
 }
 
 
@@ -396,20 +368,18 @@ void DUALMOTORSLOW_code() {
   GetInt(0);
   
   // on lance la tache d'accélération
-  // Ne démarre pas si un obstacle IR ou ultrason est actif
-  if (!obst && !ultra_obst)
+  if (obst==false) 
     Task3On();
 
   // réponse de la commande
   RetAcquitSimpl();
-  if (feedback==2) {
-    if (!obst && !ultra_obst) {
+  if (feedback==2)
+    if (obst==false)
+    { 
       sprintf(retstring,"OK Moteurs démarrage progressif : %d %d %d",nivE1,nivE2,vitdem);
-      Serial.println(retstring);
-    } else {
-      Serial.println("OB stacle détecté moteur non allumé");
-    }
-  }
+      Serial.println(retstring); }
+    else 
+      Serial.println("OB stacle détecté moteur non allumé"); 
 }
 
 
@@ -530,71 +500,20 @@ void  INFRARED_TIME_code() {
 
 // renvoie la valeur du capteur ultrasons
 void  ULTRASON_code() {
-  // Mesure la distance avec le capteur ultrason HC‑SR04 et renvoie la valeur.
-  int cm = readUltrasonicCM();
-  if (commode == 2) {
-    // retourne un entier 16 bits (ou 0 en cas d'absence de lecture)
-    write_i16(cm < 0 ? 0 : cm);
-  } else {
-    // en mode ASCII on renvoie simplement la distance en cm (ou 0 si aucun écho)
-    if (cm < 0) cm = 0;
-    Serial.println(cm);
-  }
+  // a=sr04.Distance();
+  distance = MeasureDistance();
+  if (commode==2)
+    write_i16(a); 
+  else
+    Serial.println(a);
 }
 
-// -----------------------------------------------------------------------------
-// Utilitaires pour l'arrêt d'urgence via capteur ultrason (HC‑SR04)
-//
-// Mesure la distance en centimètres à l'aide d'un déclencheur/écho et renvoie
-// -1 en cas d'absence de retour dans le temps imparti. Une distance inférieure
-// ou égale à ULTRA_EMERGENCY_CM déclenche la mise en drapeau ultra_obst et
-// provoque l'arrêt immédiat des moteurs.  Lorsque la distance repasse au‑dessus
-// de ULTRA_CLEAR_CM, le drapeau est levé, autorisant à nouveau les moteurs.
-
-int readUltrasonicCM() {
-  // Envoie un court pulse sur la broche de TRIG pour initier la mesure
-  digitalWrite(ULTRA_TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(ULTRA_TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(ULTRA_TRIG_PIN, LOW);
-
-  // Mesure la durée du retour sur la broche ECHO (max ~25 ms)
-  unsigned long dur = pulseIn(ULTRA_ECHO_PIN, HIGH, 25000UL);
-  if (dur == 0) {
-    // aucun écho : renvoyer -1
-    return -1;
-  }
-  // Convertit la durée en distance (cm). Aller‑retour : ~58 µs par cm.
-  int cm = (int)(dur / 58UL);
-  return cm;
-}
-
-void check_ultrasonic_emergency() {
-  unsigned long now = millis();
-  // Limite la fréquence de mesure (p. ex. toutes les ~30 ms)
-  if (now - last_ultra_check_ms < 30) {
-    return;
-  }
-  last_ultra_check_ms = now;
-  int dist = readUltrasonicCM();
-  if (dist > 0 && dist <= ULTRA_EMERGENCY_CM) {
-    // On vient de détecter un obstacle proche
-    if (!ultra_obst) {
-      // Stoppe immédiatement les moteurs à la première détection
-      set_motor1(0);
-      set_motor2(0);
-    }
-    ultra_obst = true;
-    // Envoie "OB" de manière asynchrone (anti‑spam 200 ms)
-    if (now - last_us_ob_tx_ms > 200) {
-      Serial.println("OB");
-      last_us_ob_tx_ms = now;
-    }
-  } else if (dist >= ULTRA_CLEAR_CM && dist != -1) {
-    // Distance suffisamment grande : on sort du mode urgence
-    ultra_obst = false;
-  }
+int MeasureDistance(){               // a low pull on pin COMP/TRIG  triggering a sensor reading
+  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(TRIG_PIN, HIGH);      // reading Pin PWM will output pulses
+  unsigned long distance = pulseIn(ECHO_PIN,LOW);
+  distance = distance/50;          // every 50us low level stands for 1cm
+  return distance;
 }
 
 // renvoie la tension sur le moteur
@@ -722,15 +641,24 @@ inline void task3() {
 // tache de détection des obstacles
 
 inline void task4() {
-  if (((int)millis()-tim4)>0)  // si on a atteint le temps programmé
+  if (((int)millis()-tim4)>0)  // se on a atteint le temps programmé
   { 
-    if (analogRead(IR_pin)>500)     // on a détecté un obstacle
+    // Lê a distância do sensor ultrassônico
+    distance = MeasureDistance();
+
+    // Condição de parada:
+    // SE (o sensor IR detecta algo) OU (o ultrassônico detecta algo muito perto)
+    if ( distance > 0 && distance < ULTRASONIC_STOP_DISTANCE_CM )
     {
-      obst=true ;                   // indique que l'on a détecté un obstacle
-      nivM1=0 ; nivM2=0 ;
-      set_motor1(0) ;
-      set_motor2(0) ;
-      task3on = false ;        // arret du démarrage progressif
+      // Se um obstáculo for detectado por qualquer um dos sensores:
+      obst = true;             // 1. Ativa a flag de obstáculo
+      nivM1 = 0; nivM2 = 0;   // 2. Zera as variáveis de velocidade
+      set_motor1(0);           // 3. Para fisicamente os motores (esta chamada já checa a flag 'obst',
+      set_motor2(0);           //    mas fazemos por redundância e segurança)
+      task3on = false;         // 4. Cancela qualquer aceleração progressiva em andamento
+    } else
+    {
+      obst = false;            // Nenhum obstáculo detectado
     }
     tim4=tim4+del4 ;
   }
