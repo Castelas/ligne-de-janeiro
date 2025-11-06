@@ -31,13 +31,13 @@ speed = DEFAULT_SPEED_LEVEL
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
 BASE_SEARCH_SPEED = 110
-BASE_START_SPEED = 130
+BASE_START_SPEED = 100
 BASE_ALIGN_BASE = 100
 BASE_ALIGN_CAP = 135
 BASE_PIVOT_MIN = 150
 BASE_PIVOT_CAP = 150
 BASE_TURN_SPEED = 150
-BASE_STRAIGHT_SPEED = 130
+BASE_STRAIGHT_SPEED = 110
 BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
 BASE_BORDER_CRAWL_DURATION = 0.06
@@ -67,7 +67,7 @@ def _scale_speed(value, exponent=1.0, min_value=None, max_value=None):
     return int(round(scaled))
 
 VELOCIDADE_CURVA = _scale_speed(BASE_VELOCIDADE_CURVA)
-Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
+Kp = 1.0              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
@@ -111,7 +111,7 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 0.94    # Para um pouco antes do limite inferior
+Y_TARGET_STOP_FRAC = 0.92    # Para um pouco antes do limite inferior
 CRAWL_SPEED = _scale_speed(BASE_CRAWL_SPEED, min_value=70, max_value=VELOCIDADE_MAX)
 speed_multiplier_for_time = max(speed_multiplier, 0.7)
 CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
