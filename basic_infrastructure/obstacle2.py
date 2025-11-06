@@ -8,6 +8,8 @@ import base64
 import time
 import numpy as np
 import serial
+import threading
+import queue
 
 # ============================= PARÂMETROS GERAIS =============================
 # --- REDE ---
@@ -30,7 +32,7 @@ PAR_TOL_DEG         = 8
 
 # --- CONTROLE (P puro; sem derivativo ainda) ---
 VELOCIDADE_BASE = 150
-VELOCIDADE_CURVA = 120
+VELOCIDADE_CURVA = 100
 Kp = 0.75
 VELOCIDADE_MAX = 255
 MODO_AUTO   = "AUTOMATICO"
@@ -53,15 +55,50 @@ USE_ADAPTIVE    = False                 # threshold adaptativo desligado por pad
 PORTA_SERIAL = '/dev/ttyACM0'
 BAUDRATE = 115200
 
-# --- ESTADOS DO ROBÔ --- # <--- NOVO
+# --- ESTADOS DO ROBÔ ---
 ESTADO_SEGUINDO  = "FOLLOW"
 ESTADO_PERDIDO   = "LOST"
 ESTADO_OBSTACULO = "OBSTACLE"
 
-# --- DETECÇÃO DE OBSTÁCULOS --- # <--- NOVO
-DISTANCIA_PARADA_CM = 30      # Deve ser igual ou um pouco maior que o valor no Arduino
-OBSTACLE_CHECK_INTERVAL = 0.2 # Verificar obstáculos a cada 200ms
-last_obstacle_check = 0.0
+# --- DETECÇÃO DE OBSTÁCULOS ---
+DISTANCIA_PARADA_CM = 15
+OBSTACLE_CHECK_INTERVAL = 0.1 # Podemos verificar mais rápido agora
+
+
+# ============================ WORKER SERIAL (NOVA SEÇÃO) ============================
+
+def serial_worker(arduino, command_queue, robot_state, stop_event):
+    """
+    Esta função roda em uma thread separada.
+    Seu único trabalho é gerenciar a comunicação com o Arduino.
+    """
+    last_sensor_request_time = 0
+    SENSOR_REQUEST_INTERVAL = 0.1 # Pede a distância a cada 100ms
+
+    while not stop_event.is_set():
+        # 1. Enviar comandos da fila
+        try:
+            command = command_queue.get_nowait()
+            arduino.write(command)
+        except queue.Empty:
+            pass # Fila vazia, sem problemas
+
+        # 2. Pedir dados do sensor periodicamente
+        now = time.time()
+        if now - last_sensor_request_time > SENSOR_REQUEST_INTERVAL:
+            try:
+                arduino.write(b'S\n')
+                # Esta é a única chamada bloqueante, mas está segura na sua própria thread
+                response = arduino.readline().decode('utf-8').strip()
+                if response:
+                    dist = int(response)
+                    # Atualiza o estado compartilhado
+                    robot_state['distance'] = dist
+                last_sensor_request_time = now
+            except (ValueError, serial.SerialException) as e:
+                print(f"Erro na thread serial: {e}")
+        
+        time.sleep(0.01) # Pequena pausa para não sobrecarregar o processador
 
 # ============================ AUXILIARES VISUAIS ============================
 def _angle_diff(a, b):
@@ -251,34 +288,27 @@ def calcular_velocidades_auto(erro, base_speed):
     v_dir = int(np.clip(v_dir, 15, VELOCIDADE_MAX))
     return v_esq, v_dir
 
-def enviar_comando_motor_serial(arduino, v_esq, v_dir):
-    # Envia velocidades com sinal; negativos significam ré
-    comando = f"C {v_dir} {v_esq}"
-    arduino.write(comando.encode('utf-8'))
+def enviar_comando_motor(command_queue, v_esq, v_dir):
+    """Coloca um comando de motor na fila para ser enviado pela thread serial."""
+    comando = f"C {v_dir} {v_esq}\n".encode('utf-8')
+    command_queue.put(comando)
 
-def ativar_protecao_obstaculos(arduino):
-    """Ativa a rotina de detecção de obstáculos no Arduino."""
-    try:
-        arduino.write(b'I1')
-        # print(f"Arduino ACK Proteção: {arduino.readline().decode('utf-8').strip()}")
-    except Exception as e:
-        print(f"Erro ao ativar proteção de obstáculos: {e}")
+def ativar_camada_seguranca(command_queue):
+    """Ativa a tarefa de segurança no Arduino."""
+    print("Ativando camada de segurança no Arduino (I1)")
+    command_queue.put(b'I1\n')
 
-def consultar_distancia_ultrassom(arduino):
-    """Envia o comando 'S' e retorna a distância em cm, ou None em caso de erro."""
-    try:
-        arduino.write(b'S')
-        resposta = arduino.readline().decode('utf-8').strip()
-        if resposta:
-            return int(resposta)
-    except (ValueError, serial.SerialException) as e:
-        print(f"Erro ao ler sensor de ultrassom: {e}")
-        return None
-    return None
+def desativar_camada_seguranca(command_queue):
+    """Desativa a tarefa de segurança no Arduino."""
+    print("Desativando camada de segurança no Arduino (I0)")
+    command_queue.put(b'I0\n')
 
 # ================================= MAIN =====================================
 def main():
-    global last_obstacle_check
+    # --- OBJETOS COMPARTILHADOS ENTRE THREADS ---
+    command_queue = queue.Queue()
+    robot_state = {'distance': 999}
+    stop_event = threading.Event()
 
     # --- ZMQ ---
     context = zmq.Context()
@@ -298,26 +328,31 @@ def main():
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     time.sleep(0.1)
 
-    # --- Arduino ---
-    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.01); time.sleep(2)
+    # --- Arduino e Thread Serial ---
     try:
-        arduino.write(b'A00')
-        print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
-        ativar_protecao_obstaculos(arduino)
+        # Timeout pode ser maior agora, pois não bloqueia o loop principal
+        arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.5)
+        time.sleep(2)
+        command_queue.put(b'A10\n') # Conecta com feedback
+        print(f"Arduino: {arduino.readline().decode('utf-g').strip()}") # Leitura inicial OK
     except Exception as e:
         print(f"Falha na inicialização do Arduino: {e}")
         return
 
+    # Inicia a thread de comunicação
+    comm_thread = threading.Thread(target=serial_worker, args=(arduino, command_queue, robot_state, stop_event))
+    comm_thread.daemon = True
+    comm_thread.start()
+    
+    ativar_camada_seguranca(command_queue)
+
     # Estado do seguidor (sem derivativo)
     last_err = 0.0
     lost_frames = 0
-    state = ESTADO_SEGUINDO # FOLLOW | LOST
+    state = 'FOLLOW'  # FOLLOW | LOST
 
     current_mode = MODO_AUTO
     v_esq, v_dir = 0, 0
-
-    distancia_obstaculo = 999
-
     print("Robo iniciado. Pressione 'm' para trocar de modo.")
 
     try:
@@ -353,58 +388,42 @@ def main():
 
             # ----------------- CONTROLE -----------------
             if current_mode == MODO_AUTO:
-                # image, erro, conf = processar_imagem(image)
-
-                # 1. Verificar obstáculos periodicamente
-                if now - last_obstacle_check > OBSTACLE_CHECK_INTERVAL:
-                    dist = consultar_distancia_ultrassom(arduino)
-                    last_obstacle_check = now
-                    if dist is not None:
-                        distancia_obstaculo = dist
-                        
-                # 2. Definir o estado com base nas prioridades
-                if (distancia_obstaculo > 0 and distancia_obstaculo < DISTANCIA_PARADA_CM):
+                # 1. Lê a distância do estado compartilhado (sem bloqueio!)
+                distancia_obstaculo = robot_state['distance']
+                
+                 # 2. Lógica da máquina de estados
+                if distancia_obstaculo < DISTANCIA_PARADA_CM:
                     if state != ESTADO_OBSTACULO:
                         print(f"OBSTÁCULO DETECTADO a {distancia_obstaculo} cm! Parando.")
                         state = ESTADO_OBSTACULO
-                elif state == ESTADO_OBSTACULO and distancia_obstaculo >= DISTANCIA_PARADA_CM + 5: # Histerese para evitar trepidação
+                elif state == ESTADO_OBSTACULO and distancia_obstaculo >= DISTANCIA_PARADA_CM + 5:
                     print("Obstáculo removido. Retomando operação...")
-                    ativar_protecao_obstaculos(arduino) # Limpa a flag 'obst' no Arduino
-                    state = ESTADO_PERDIDO # Força a re-aquisição da linha por segurança
+                    ativar_camada_seguranca(command_queue) # Reativa para resetar a flag 'obst'
+                    state = ESTADO_PERDIDO
 
-                # --- LÓGICA DE AÇÃO POR ESTADO ---
                 if state == ESTADO_OBSTACULO:
                     v_esq, v_dir = 0, 0
+                
                 else:
-                    image, erro, conf = processar_imagem(image) 
-
-                    # Ação para o estado SEGUINDO
-                    if state == ESTADO_SEGUINDO:                
+                    image, erro, conf = processar_imagem(image)
+                    if state == ESTADO_SEGUINDO:
                         if conf == 1:
-                            # Detecção válida: FOLLOW
-                            lost_frames = 0
-                            last_err = erro
-
-                            # Agendamento de velocidade: reduz base com |erro|
+                            lost_frames = 0; last_err = erro
                             speed_scale = max(0.35, 1.0 - abs(erro) / float(E_MAX_PIX))
                             base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
                             v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
                         else:
-                            # Sem detecção: acumula perda até declarar LOST
                             lost_frames += 1
                             if lost_frames >= LOST_MAX_FRAMES:
                                 state = ESTADO_PERDIDO
-                            base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
-                            v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
-
-                    elif state == ESTADO_PERDIDO :               
+                            v_esq, v_dir = calcular_velocidades_auto(0, int(VELOCIDADE_BASE * 0.35))
+                    elif state == ESTADO_PERDIDO:
                         if conf == 1:
                             state = ESTADO_SEGUINDO
                             lost_frames = 0
                         else:
                             turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                             v_esq, v_dir = int(turn), int(-turn)
-
             else: # MODO_MANUAL
                 if key == 'w':   v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
                 elif key == 's': v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
@@ -412,8 +431,7 @@ def main():
                 elif key == 'd': v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
                 elif key != '':  v_esq, v_dir = 0, 0
 
-            # Comando final enviado ao Arduino
-            enviar_comando_motor_serial(arduino, v_esq, v_dir)
+            enviar_comando_motor(command_queue, v_esq, v_dir)
 
             # ---------------- VISUALIZAÇÃO ----------------
             display_frame = image.copy()
@@ -442,19 +460,10 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
             cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
-            # Muda a cor do estado para fácil visualização # <--- MODIFICADO
-            state_color = (0, 200, 255)
-            if state == ESTADO_OBSTACULO:
-                state_color = (0, 0, 255) # Vermelho para obstáculo
-            elif state == ESTADO_PERDIDO:
-                state_color = (0, 255, 255) # Amarelo para perdido
-
             cv2.putText(display_frame, f"State: {state}", (10, 85),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 2)
-            cv2.putText(display_frame, f"Dist: {distancia_obstaculo} cm", (10, 105), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1)
+            cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 105),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
-            #cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 105),
-                        #cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
             cv2.putText(display_frame, f"Intersections: {len(intersections)}", (10, 125),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
             cv2.putText(display_frame, f"Conf: {conf}  LostFrames: {lost_frames}", (10, 145),
@@ -467,8 +476,8 @@ def main():
     finally:
         print("Encerrando...")
         try:
-            enviar_comando_motor_serial(arduino, 0, 0)
-            arduino.write(b'a'); arduino.close()
+            enviar_comando_motor(command_queue, 0, 0)
+            arduino.write(b'a\n'); arduino.close()
         except Exception:
             pass
         try:
