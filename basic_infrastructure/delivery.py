@@ -39,7 +39,7 @@ BASE_STRAIGHT_SPEED = 130
 BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
 BASE_TURN_DURATION = 0.75
-BASE_UTURN_DURATION = 1.55
+BASE_UTURN_RATIO = 1.85  # Fator sobre o tempo de giro de 90° (ajustável)
 BASE_APPROACH_FLOOR = 100
 BASE_APPROACH_LOST = 110
 BASE_CELEBRATION_WIGGLE = 130
@@ -105,7 +105,7 @@ speed_multiplier_for_time = max(speed_multiplier, 0.7)
 CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
 turn_speed_gain = max(TURN_SPEED / float(BASE_TURN_SPEED), 0.1)
 TURN_DURATION_S = float(np.clip(BASE_TURN_DURATION / turn_speed_gain, 0.35, 1.2))
-UTURN_DURATION_S = float(np.clip(BASE_UTURN_DURATION / turn_speed_gain, 0.9, 2.5))
+UTURN_DURATION_S = float(np.clip((BASE_UTURN_RATIO * TURN_DURATION_S), 0.8, 2.3))
 STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
@@ -113,6 +113,11 @@ BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseç�
 BORDER_Y_TARGET_STOP_FRAC = 0.84    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
 INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.95  # Fração de altura projetada por segundo quando só temos memória
+INTERSECTION_DESCENT_MIN_FRAMES = 5          # Nº mínimo de frames vendo a intersecção descer
+INTERSECTION_DESCENT_TOL_PX = 6             # Tolerância para pequenas oscilações de Y
+INTERSECTION_DESCENT_MIN_DELTA_FRAC = 0.08   # Descida mínima (em fração da altura) para confiar na memória longa
+INTERSECTION_DESCENT_MEMORY_S = 1.4          # Tempo extra de memória quando confirmamos a descida
+INTERSECTION_REJECT_JUMP_FRAC = 0.05         # Se nova intersecção subir muito, ignorar e manter a antiga
 APPROACH_TIMEOUT_S = 2.5            # Tempo máximo preso em APPROACHING antes de forçar parada
 APPROACH_FLOOR_SPEED = _scale_speed(BASE_APPROACH_FLOOR, min_value=80, max_value=VELOCIDADE_MAX)
 APPROACH_LOST_SPEED = max(APPROACH_FLOOR_SPEED + 5,
@@ -541,6 +546,11 @@ def go_to_next_intersection(arduino, camera):
     last_intersection_y = -1.0
     last_intersection_time = 0.0
     last_intersection_is_border = False
+    intersection_descent_frames = 0
+    intersection_descent_start_y = -1.0
+    intersection_last_live_y = -1.0
+    intersection_last_live_time = 0.0
+    intersection_descent_confident = False
 
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
@@ -583,10 +593,30 @@ def go_to_next_intersection(arduino, camera):
                     target_intersection[0] >= w - border_margin_px
                 )
 
+                if last_intersection_point is not None and last_intersection_y >= 0.0:
+                    jump_threshold = max(INTERSECTION_DESCENT_TOL_PX * 2, h * INTERSECTION_REJECT_JUMP_FRAC)
+                    if (
+                        intersection_descent_confident
+                        and (last_intersection_y - target_y) > jump_threshold
+                    ):
+                        print(
+                            f"   🔎 Intersecção atual subiu demais (ΔY={last_intersection_y - target_y:.0f} > {jump_threshold:.0f})."
+                            " Mantendo memória da anterior."
+                        )
+                        target_intersection = None
+                        target_y = -1.0
+
+            extra_memory_valid = False
+            if intersection_descent_confident and intersection_last_live_time > 0.0:
+                extra_memory_valid = (now - intersection_last_live_time) <= INTERSECTION_DESCENT_MEMORY_S
+
             memory_valid = (
                 target_intersection is None
                 and last_intersection_point is not None
-                and (now - last_intersection_time) <= INTERSECTION_MEMORY_S
+                and (
+                    (now - last_intersection_time) <= INTERSECTION_MEMORY_S
+                    or extra_memory_valid
+                )
             )
 
             if memory_valid:
@@ -604,11 +634,37 @@ def go_to_next_intersection(arduino, camera):
                 print(f"   🔁 Interseção memorizada: {target_intersection} (border={is_border_intersection}) | proj_y={projected_y:.0f}")
 
             if target_intersection is not None:
+                if not intersection_from_memory:
+                    if intersection_last_live_y >= 0 and target_y + INTERSECTION_DESCENT_TOL_PX >= intersection_last_live_y:
+                        intersection_descent_frames += 1
+                    else:
+                        intersection_descent_frames = 1
+                        intersection_descent_start_y = target_y
+
+                    if intersection_descent_frames == 1:
+                        intersection_descent_start_y = target_y
+
+                    intersection_last_live_y = target_y
+                    intersection_last_live_time = now
+
+                    delta_y = target_y - intersection_descent_start_y
+                    min_delta = h * INTERSECTION_DESCENT_MIN_DELTA_FRAC
+                    intersection_descent_confident = (
+                        intersection_descent_frames >= INTERSECTION_DESCENT_MIN_FRAMES
+                        and delta_y >= min_delta
+                        and target_y >= h * Y_START_SLOWING_FRAC
+                    )
+
                 last_intersection_point = target_intersection
                 last_intersection_y = float(target_y)
                 last_intersection_time = now
                 last_intersection_is_border = is_border_intersection
             else:
+                intersection_descent_confident = False
+                intersection_descent_frames = 0
+                intersection_descent_start_y = -1.0
+                intersection_last_live_y = -1.0
+                intersection_last_live_time = 0.0
                 last_intersection_point = None
                 last_intersection_y = -1.0
                 last_intersection_is_border = False
