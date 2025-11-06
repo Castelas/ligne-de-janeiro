@@ -257,11 +257,11 @@ def main():
     # --- Arduino ---
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
-        arduino.write(b'A10\n')
+        arduino.write(b'A10')
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
         
         # Ativa a task4 (detecção de obstáculo)
-        arduino.write(b'I1\n')
+        arduino.write(b'I1')
         print(f"Protecao: {arduino.readline().decode('utf-8').strip()}")
         
     except Exception as e:
@@ -449,7 +449,7 @@ def main():
         print("Encerrando...")
         try:
             enviar_comando_motor_serial(arduino, 0, 0)
-            arduino.write(b'a\n'); arduino.close()
+            arduino.write(b'a'); arduino.close()
         except Exception:
             pass
         try:
