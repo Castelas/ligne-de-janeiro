@@ -6,6 +6,7 @@
 #  • Mantém todas as rotinas de visão/controle idênticas ao robot2.py.
 from picamera.array import PiRGBArray
 from picamera import PiCamera
+from picamera.exc import PiCameraValueError
 import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # --- CONFIGURAÇÃO CONTROLE REMOTO ---
@@ -24,7 +25,8 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-speed = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+DEFAULT_SPEED_LEVEL = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+speed = DEFAULT_SPEED_LEVEL
 
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
@@ -38,8 +40,9 @@ BASE_TURN_SPEED = 150
 BASE_STRAIGHT_SPEED = 130
 BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
+BASE_BORDER_CRAWL_DURATION = 0.06
 BASE_TURN_DURATION = 0.75
-BASE_UTURN_DURATION = 1.55
+BASE_UTURN_RATIO = 1.75  # Fator sobre o tempo de giro de 90° (ajustável)
 BASE_APPROACH_FLOOR = 100
 BASE_APPROACH_LOST = 110
 BASE_CELEBRATION_WIGGLE = 130
@@ -86,6 +89,15 @@ GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
 START_SPEED  = _scale_speed(BASE_START_SPEED, max_value=VELOCIDADE_MAX)  # reta cega
 TURN_SPEED   = _scale_speed(BASE_TURN_SPEED, max_value=VELOCIDADE_MAX)   # giros 90/180 ajustados
 
+
+def is_border_node(node):
+    """Retorna True se a interseção pertence à borda externa do grid 5x5."""
+    if node is None:
+        return False
+    x, y = node
+    max_x, max_y = GRID_NODES[0] - 1, GRID_NODES[1] - 1
+    return x == 0 or y == 0 or x == max_x or y == max_y
+
 # PIVÔ e aquisição pós-pivô
 PIVOT_CAP       = _scale_speed(BASE_PIVOT_CAP, max_value=VELOCIDADE_MAX)
 PIVOT_MIN       = _scale_speed(BASE_PIVOT_MIN, min_value=80)
@@ -103,16 +115,25 @@ Y_TARGET_STOP_FRAC = 0.94    # Para um pouco antes do limite inferior
 CRAWL_SPEED = _scale_speed(BASE_CRAWL_SPEED, min_value=70, max_value=VELOCIDADE_MAX)
 speed_multiplier_for_time = max(speed_multiplier, 0.7)
 CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
+BORDER_CRAWL_DURATION_S = BASE_BORDER_CRAWL_DURATION / speed_multiplier_for_time
 turn_speed_gain = max(TURN_SPEED / float(BASE_TURN_SPEED), 0.1)
 TURN_DURATION_S = float(np.clip(BASE_TURN_DURATION / turn_speed_gain, 0.35, 1.2))
-UTURN_DURATION_S = float(np.clip(BASE_UTURN_DURATION / turn_speed_gain, 0.9, 2.5))
+UTURN_DURATION_S = float(np.clip((BASE_UTURN_RATIO * TURN_DURATION_S), 0.8, 2.3))
 STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
 BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseções somem antes)
-BORDER_Y_TARGET_STOP_FRAC = 0.84    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
+BORDER_Y_TARGET_STOP_FRAC = 0.74    # Alvo mais alto: bordas somem bem antes do limite inferior
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
-INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.95  # Fração de altura projetada por segundo quando só temos memória
+INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.70  # Fração de altura projetada por segundo quando só temos memória
+INTERSECTION_MEMORY_EXTRA_FRAC = 0.012        # Limite adicional (em fração da altura) acima do último Y real
+BORDER_INTERSECTION_MEMORY_EXTRA_FRAC = 0.028  # Limite extra maior nas bordas
+INTERSECTION_BORDER_STOP_PAD_FRAC = 0.020     # Margem adicional acima do último Y visto ao usar memória
+INTERSECTION_DESCENT_MIN_FRAMES = 5          # Nº mínimo de frames vendo a intersecção descer
+INTERSECTION_DESCENT_TOL_PX = 6             # Tolerância para pequenas oscilações de Y
+INTERSECTION_DESCENT_MIN_DELTA_FRAC = 0.08   # Descida mínima (em fração da altura) para confiar na memória longa
+INTERSECTION_DESCENT_MEMORY_S = 1.4          # Tempo extra de memória quando confirmamos a descida
+INTERSECTION_REJECT_JUMP_FRAC = 0.05         # Se nova intersecção subir muito, ignorar e manter a antiga
 APPROACH_TIMEOUT_S = 2.5            # Tempo máximo preso em APPROACHING antes de forçar parada
 APPROACH_FLOOR_SPEED = _scale_speed(BASE_APPROACH_FLOOR, min_value=80, max_value=VELOCIDADE_MAX)
 APPROACH_LOST_SPEED = max(APPROACH_FLOOR_SPEED + 5,
@@ -525,7 +546,7 @@ def best_intersection_in_band(pts, h, band_y0, band_y1):
     # Prioriza interseções dentro da banda, mas aceita fora se necessário
     return cand_in_band if cand_in_band is not None else cand_out_band
 
-def go_to_next_intersection(arduino, camera):
+def go_to_next_intersection(arduino, camera, expected_node=None):
     """
     Vai até a próxima interseção usando a lógica robusta do robot_pedro.py
     """
@@ -541,9 +562,26 @@ def go_to_next_intersection(arduino, camera):
     last_intersection_y = -1.0
     last_intersection_time = 0.0
     last_intersection_is_border = False
+    intersection_descent_frames = 0
+    intersection_descent_start_y = -1.0
+    intersection_last_live_y = -1.0
+    intersection_last_live_time = 0.0
+    intersection_descent_confident = False
+    planned_border = None if expected_node is None else is_border_node(expected_node)
 
+    last_stop_candidate_is_border = bool(planned_border)
+    current_stop_is_border = bool(planned_border)
+
+    capture_iter = camera.capture_continuous(raw, format="bgr", use_video_port=True)
     try:
-        for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
+        while True:
+            try:
+                f = next(capture_iter)
+            except PiCameraValueError as exc:
+                print(f"   ⚠️  Buffer de câmera inconsistente ({exc}). Reinicializando frame...")
+                raw.truncate(0)
+                raw.seek(0)
+                continue
             img = f.array
             mask = build_binary_mask(img)
             img, erro, conf = processar_imagem(img)
@@ -558,6 +596,7 @@ def go_to_next_intersection(arduino, camera):
             target_y = -1.0
             is_border_intersection = False
             intersection_from_memory = False
+            target_from_memory = False
 
             if intersections:
                 filtered_intersections = [
@@ -583,15 +622,58 @@ def go_to_next_intersection(arduino, camera):
                     target_intersection[0] >= w - border_margin_px
                 )
 
-            memory_valid = (
-                target_intersection is None
+                if planned_border is not None:
+                    is_border_intersection = planned_border
+
+            should_use_memory = (
+                planned_border if planned_border is not None else (
+                    is_border_intersection or last_intersection_is_border
+                )
+            )
+
+            if (
+                should_use_memory
+                and target_intersection is not None
                 and last_intersection_point is not None
-                and (now - last_intersection_time) <= INTERSECTION_MEMORY_S
+                and last_intersection_y >= 0.0
+            ):
+                jump_threshold = max(INTERSECTION_DESCENT_TOL_PX * 2, h * INTERSECTION_REJECT_JUMP_FRAC)
+                if (
+                    intersection_descent_confident
+                    and (last_intersection_y - target_y) > jump_threshold
+                ):
+                    print(
+                        f"   🔎 Intersecção atual subiu demais (ΔY={last_intersection_y - target_y:.0f} > {jump_threshold:.0f})."
+                        " Mantendo memória da anterior."
+                    )
+                    target_intersection = None
+                    target_y = -1.0
+
+            extra_memory_valid = False
+            if should_use_memory and intersection_descent_confident and intersection_last_live_time > 0.0:
+                extra_memory_valid = (now - intersection_last_live_time) <= INTERSECTION_DESCENT_MEMORY_S
+
+            memory_valid = (
+                should_use_memory
+                and target_intersection is None
+                and last_intersection_point is not None
+                and (
+                    (now - last_intersection_time) <= INTERSECTION_MEMORY_S
+                    or extra_memory_valid
+                )
             )
 
             if memory_valid:
                 dt = now - last_intersection_time
                 projected_y = last_intersection_y + INTERSECTION_MEMORY_GROW_FRAC_PER_S * dt * h
+                if intersection_last_live_y >= 0:
+                    extra_cap_frac = (
+                        BORDER_INTERSECTION_MEMORY_EXTRA_FRAC
+                        if last_intersection_is_border
+                        else INTERSECTION_MEMORY_EXTRA_FRAC
+                    )
+                    max_projected_y = intersection_last_live_y + extra_cap_frac * h
+                    projected_y = min(projected_y, max_projected_y)
                 projected_y = min(projected_y, float(h - 1))
 
                 last_intersection_y = projected_y
@@ -604,24 +686,65 @@ def go_to_next_intersection(arduino, camera):
                 print(f"   🔁 Interseção memorizada: {target_intersection} (border={is_border_intersection}) | proj_y={projected_y:.0f}")
 
             if target_intersection is not None:
+                if should_use_memory and not intersection_from_memory:
+                    if intersection_last_live_y >= 0 and target_y + INTERSECTION_DESCENT_TOL_PX >= intersection_last_live_y:
+                        intersection_descent_frames += 1
+                    else:
+                        intersection_descent_frames = 1
+                        intersection_descent_start_y = target_y
+
+                    if intersection_descent_frames == 1:
+                        intersection_descent_start_y = target_y
+
+                    intersection_last_live_y = target_y
+                    intersection_last_live_time = now
+
+                    delta_y = target_y - intersection_descent_start_y
+                    min_delta = h * INTERSECTION_DESCENT_MIN_DELTA_FRAC
+                    intersection_descent_confident = (
+                        intersection_descent_frames >= INTERSECTION_DESCENT_MIN_FRAMES
+                        and delta_y >= min_delta
+                        and target_y >= h * Y_START_SLOWING_FRAC
+                    )
+
                 last_intersection_point = target_intersection
                 last_intersection_y = float(target_y)
                 last_intersection_time = now
                 last_intersection_is_border = is_border_intersection
+                last_stop_candidate_is_border = is_border_intersection
             else:
+                intersection_descent_confident = False
+                intersection_descent_frames = 0
+                intersection_descent_start_y = -1.0
+                intersection_last_live_y = -1.0
+                intersection_last_live_time = 0.0
                 last_intersection_point = None
                 last_intersection_y = -1.0
                 last_intersection_is_border = False
+                last_stop_candidate_is_border = False
+
+            if not should_use_memory:
+                intersection_descent_confident = False
+                intersection_descent_frames = 0
+                intersection_descent_start_y = -1.0
+                intersection_last_live_y = -1.0
+                intersection_last_live_time = 0.0
 
             if target_intersection is not None and target_intersection not in intersections:
                 intersections = intersections + [target_intersection]
 
             intersection_source = "MEM" if intersection_from_memory else ("LIVE" if target_intersection is not None else "--")
+            target_from_memory = intersection_from_memory
 
             y_start_frac = BORDER_Y_START_SLOWING_FRAC if is_border_intersection else Y_START_SLOWING_FRAC
             y_target_frac = BORDER_Y_TARGET_STOP_FRAC if is_border_intersection else Y_TARGET_STOP_FRAC
             Y_START_SLOWING = h * y_start_frac
             Y_TARGET_STOP = h * y_target_frac
+
+            if is_border_intersection and intersection_last_live_y >= 0:
+                pad_y = intersection_last_live_y + INTERSECTION_BORDER_STOP_PAD_FRAC * h
+                min_stop = max(Y_START_SLOWING + 4.0, pad_y)
+                Y_TARGET_STOP = min(Y_TARGET_STOP, min_stop)
 
             recent_intersection = (
                 target_intersection is not None or
@@ -650,6 +773,7 @@ def go_to_next_intersection(arduino, camera):
                     approach_start_time = now
                     last_known_y = target_y
                     lost_frames = 0
+                    current_stop_is_border = is_border_intersection
                 elif conf == 0:
                     lost_frames += 1
                     if lost_frames >= LOST_MAX_FRAMES:
@@ -677,6 +801,19 @@ def go_to_next_intersection(arduino, camera):
                     lost_frames += 1
                     print(f"   ⚠️  Aproximando, confiança perdida! (Frame {lost_frames})")
 
+                    if target_y != -1.0 and target_from_memory and is_border_intersection:
+                        last_known_y = target_y
+                        current_stop_is_border = True
+                        if last_known_y >= Y_TARGET_STOP:
+                            print("   🛑 Alvo de memória atingido. 'Andando mais um pouco'...")
+                            state = 'STOPPING'
+                            action_start_time = time.time()
+                            approach_start_time = 0.0
+                            last_known_y = -1.0
+                            raw.truncate(0)
+                            raw.seek(0)
+                            continue
+
                     if lost_frames >= LOST_MAX_FRAMES:
                         threshold_hit = (lost_frames == LOST_MAX_FRAMES)
                         pending_stop = last_known_y > Y_START_SLOWING
@@ -697,6 +834,7 @@ def go_to_next_intersection(arduino, camera):
                     # Atualiza a posição conhecida da interseção
                     if target_y != -1.0:
                         last_known_y = target_y
+                        current_stop_is_border = is_border_intersection
 
                         # GATILHO 1: Atingimos o alvo de Y?
                         if last_known_y >= Y_TARGET_STOP:
@@ -705,6 +843,7 @@ def go_to_next_intersection(arduino, camera):
                             action_start_time = time.time()
                             approach_start_time = 0.0
                             last_known_y = -1.0  # Reseta para a próxima
+                            current_stop_is_border = is_border_intersection
 
                     # GATILHO 2: Interseção desapareceu completamente (backup)
                     if target_y == -1.0 and last_known_y > Y_START_SLOWING:
@@ -713,6 +852,7 @@ def go_to_next_intersection(arduino, camera):
                         action_start_time = time.time()
                         approach_start_time = 0.0
                         last_known_y = -1.0  # Reseta para a próxima
+                        current_stop_is_border = last_stop_candidate_is_border
 
                 if state == 'APPROACHING' and approach_start_time > 0.0:
                     elapsed_approach = now - approach_start_time
@@ -722,11 +862,14 @@ def go_to_next_intersection(arduino, camera):
                         action_start_time = now
                         approach_start_time = 0.0
                         last_known_y = -1.0
+                        current_stop_is_border = last_stop_candidate_is_border
 
             elif state == 'STOPPING':
-                if (time.time() - action_start_time) > CRAWL_DURATION_S:
+                crawl_limit = BORDER_CRAWL_DURATION_S if current_stop_is_border else CRAWL_DURATION_S
+                if (time.time() - action_start_time) > crawl_limit:
                     print("   ✅ Parada completa na interseção!")
                     state = 'STOPPED'
+                    current_stop_is_border = False
 
             elif state == 'LOST':
                 if conf == 1:
@@ -806,7 +949,14 @@ def go_to_next_intersection(arduino, camera):
             elif state == 'STOPPING': state_color = (255, 0, 255)  # Magenta
             elif state == 'STOPPED': state_color = (255, 0, 0)  # Azul
 
-            cv2.putText(display_frame, f"State: {state}", (10, 30),
+            approaching_border = (
+                current_stop_is_border
+                or (planned_border is True)
+                or (planned_border is None and is_border_intersection)
+            )
+            hud_state = "APPROACHING B." if (state == 'APPROACHING' and approaching_border) else state
+
+            cv2.putText(display_frame, f"State: {hud_state}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, state_color, 2)
             cv2.putText(display_frame, f"Conf: {conf}  Lost: {lost_frames}", (10, 55),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
@@ -827,22 +977,28 @@ def go_to_next_intersection(arduino, camera):
                 return False
 
     finally:
+        try:
+            capture_iter.close()
+        except Exception:
+            pass
         raw.truncate(0)
 
 # ====================== Planejamento e Execução ======================
 def manhattan(a,b): return abs(a[0]-b[0])+abs(a[1]-b[1])
 
-def front_left_right_corners(sx,sy,orient):
-    # Retorna (left_corner, right_corner) relativos à direção de movimento
-    # left_corner: interseção alcançável virando para esquerda
-    # right_corner: interseção alcançável virando para direita
-    # Interseções acessíveis baseadas no quadrado (sx,sy)
-    # Para quadrado X,Y: interseções são (X,Y), (X,Y+1), (X+1,Y), (X+1,Y+1)
-    # Mas acessíveis dependem da orientação
-    if orient==0:  return ( (sx,sy),     (sx,sy+1) )     # Norte: (X,Y), (X,Y+1)
-    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y), (X+1,Y+1)
-    if orient==2:  return ( (sx+1,sy+1), (sx+1,sy) )   # Sul: (X+1,Y+1), (X+1,Y)
-    if orient==3:  return ( (sx+1,sy),   (sx,sy) )     # Oeste: (X+1,Y), (X,Y)
+def front_left_right_corners(sx, sy, orient):
+    """Mapeia o quadrado atual para as duas interseções alcançáveis pelo pivô."""
+
+    # Para cada orientação consideramos os dois cantos "à frente" do robô.
+    # O primeiro elemento da tupla representa virar à esquerda; o segundo, virar à direita.
+    if orient == 0:   # Norte
+        return ((sx, sy), (sx, sy + 1))
+    if orient == 1:   # Leste
+        return ((sx + 1, sy), (sx + 1, sy + 1))
+    if orient == 2:   # Sul
+        return ((sx + 1, sy + 1), (sx + 1, sy))
+    if orient == 3:   # Oeste
+        return ((sx + 1, sy), (sx, sy))
     raise ValueError
 
 def get_accessible_intersections(sx, sy, orient):
@@ -850,33 +1006,53 @@ def get_accessible_intersections(sx, sy, orient):
     left_corner, right_corner = front_left_right_corners(sx, sy, orient)
     return [left_corner, right_corner]
 
-def find_best_accessible_intersection(path, cur_dir):
-    """
-    Encontra a interseção no path A* que seja acessível da orientação atual,
-    escolhendo a mais próxima do início do caminho.
-    """
-    if len(path) <= 1:
-        return path[0] if path else None
+def choose_best_pivot_intersection(sx, sy, cur_dir, target, grid=GRID_NODES):
+    """Seleciona a interseção acessível que gera o melhor caminho A* até o destino.
 
-    # Para qualquer quadrado, determinar interseções acessíveis
-    # Assumindo que estamos saindo do quadrado path[0]
-    start_square = path[0]
-    sx, sy = start_square
-
+    Retorna (interseção, caminho) ou None se nada acessível produzir um caminho.
+    """
     accessible = get_accessible_intersections(sx, sy, cur_dir)
 
-    # Procurar a interseção no path que seja acessível e mais próxima do início
-    for intersection in path[1:]:  # Começar do path[1] (primeira interseção)
-        if intersection in accessible:
-            return intersection
+    best_choice = None
+    best_path = None
+    best_len = None
+    best_manhattan = None
 
-    # Se nenhuma interseção do path for acessível, escolher a acessível com menor
-    # distância para a primeira interseção do path
-    target_intersection = path[1]
-    best_accessible = min(accessible,
-                         key=lambda inter: manhattan(inter, target_intersection))
+    for candidate in accessible:
+        cx, cy = candidate
+        if not (0 <= cx < grid[0] and 0 <= cy < grid[1]):
+            continue
 
-    return best_accessible
+        path = a_star(candidate, target, grid)
+        if path is None:
+            continue
+
+        path_len = len(path)
+        dist = manhattan(candidate, target)
+
+        if best_choice is None:
+            best_choice = candidate
+            best_path = path
+            best_len = path_len
+            best_manhattan = dist
+            continue
+
+        if path_len < best_len:
+            best_choice = candidate
+            best_path = path
+            best_len = path_len
+            best_manhattan = dist
+            continue
+
+        if path_len == best_len and dist < best_manhattan:
+            best_choice = candidate
+            best_path = path
+            best_manhattan = dist
+
+    if best_choice is None:
+        return None
+
+    return best_choice, best_path
 
 def a_star(start,goal,grid=(5,5)):
     open_set={start}; came={}; g={start:0}; f={start:manhattan(start,goal)}
@@ -1001,7 +1177,7 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, target
         raw_temp.truncate(0)
 
     # Segue para 1ª intersecção
-    if not go_to_next_intersection(arduino, camera):
+    if not go_to_next_intersection(arduino, camera, expected_node=chosen):
         print("✗ Falha ao alcançar a intersecção.")
         return None, None, False
 
@@ -1076,6 +1252,8 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         print(f"   🛑 Parado para executar giro")
 
         # Executa a ação baseada no giro relativo (lógica do robot_pedro.py)
+        post_turn_settle_s = 0.0
+
         if rel == 'F':
             # GO_STRAIGHT: Já está virado para a direção certa, apenas atualiza direção
             print("   ➡️  Já virado para a direção certa, seguindo em frente...")
@@ -1109,11 +1287,16 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             drive_cap(arduino, 0, 0); time.sleep(0.4)
             print("   ✅ Meia-volta completa")
             cur_dir = want
+            post_turn_settle_s = 1.0
 
         print(f"   ✅ Ação executada")
 
+        if post_turn_settle_s > 0:
+            print(f"   ⏸️  Aguardando {post_turn_settle_s:.1f}s para estabilizar após a meia-volta...")
+            time.sleep(post_turn_settle_s)
+
         # Agora vai para a próxima interseção seguindo a linha
-        if not go_to_next_intersection(arduino, camera):
+        if not go_to_next_intersection(arduino, camera, expected_node=nxt):
             print(f"   ❌ Falha ao alcançar ({nxt[0]},{nxt[1]})")
             return cur_node,cur_dir,False
 
@@ -1231,26 +1414,33 @@ def main():
         print("🤖 MODO AUTOMÁTICO")
         print()
 
-        # Determinar interseção inicial baseada na orientação
+        # Determinar a interseção inicial usando o caminho mais curto viável
+        best_choice = choose_best_pivot_intersection(sx, sy, cur_dir, (tx, ty), GRID_NODES)
         accessible = get_accessible_intersections(sx, sy, cur_dir)
-        start_intersection = min(accessible, key=lambda inter: manhattan(inter, (tx, ty)))
+
+        if best_choice is None:
+            print("⚠️ Nenhum caminho acessível encontrado via escolha refinada; usando heurística simples.")
+            start_intersection = min(accessible, key=lambda inter: manhattan(inter, (tx, ty)))
+            chosen_path = a_star(start_intersection, (tx, ty), GRID_NODES)
+        else:
+            start_intersection, chosen_path = best_choice
+
+        if chosen_path is None:
+            print("❌ Nenhum caminho encontrado pelo A*.")
+            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+            return
+
         print(f"🎯 Interseção inicial escolhida: {start_intersection} (baseado na orientação e destino)")
 
         # Calcular A* da interseção inicial para o destino
         print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
         send_basic_frame(camera, "Calculando caminho A*...")
 
-        path = a_star(start_intersection, (tx, ty), GRID_NODES)
-        if path is None:
-            print("❌ Nenhum caminho encontrado pelo A*.")
-            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
-            return
+        print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in chosen_path])}")
+        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in chosen_path])}")
 
-        print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
-        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
-
-        # Determinar a melhor interseção inicial baseada na orientação
-        target_intersection = find_best_accessible_intersection(path, cur_dir)
+        # Para o pivô inicial, queremos ir exatamente para a interseção escolhida
+        target_intersection = start_intersection
         print(f"🎯 Melhor interseção acessível: {target_intersection} (baseado na orientação)")
 
         # Executar lógica de navegação automática
@@ -1271,7 +1461,10 @@ def main():
 
         # Calcular caminho da interseção escolhida para o destino
         print(f"🔄 Calculando caminho da interseção {start_node} para destino {target}")
-        optimized_path = a_star(start_node, target, GRID_NODES)
+        if chosen_path and chosen_path[0] == start_node:
+            optimized_path = chosen_path
+        else:
+            optimized_path = a_star(start_node, target, GRID_NODES)
         if optimized_path is None:
             print("❌ Nenhum caminho encontrado da interseção escolhida.")
             send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
