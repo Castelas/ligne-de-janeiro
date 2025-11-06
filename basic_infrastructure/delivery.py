@@ -24,8 +24,8 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 90
-VELOCIDADE_CURVA = 100
+VELOCIDADE_BASE = 110
+VELOCIDADE_CURVA = 110
 Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
@@ -45,7 +45,7 @@ BAUDRATE = 115200
 
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
-START_SPEED  = 90        # reta cega
+START_SPEED  = 110        # reta cega
 TURN_SPEED   = 190        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
@@ -53,7 +53,7 @@ PIVOT_CAP       = 150     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
 PIVOT_TIMEOUT   = 1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
-ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
+ALIGN_BASE      = 100      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
 ALIGN_TOL_PIX   = 8       # centralização final
 ALIGN_STABLE    = 2       # frames estáveis [reduzido para entrar em FOLLOW mais rápido]
@@ -62,7 +62,7 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
-CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
+CRAWL_SPEED = 110            # Velocidade baixa para o "anda mais um pouco"
 CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco" - aumentado
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - aumentado para giros mais precisos
 TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ajustado para 0.75s
