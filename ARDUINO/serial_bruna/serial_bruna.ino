@@ -503,9 +503,9 @@ void  ULTRASON_code() {
   // a=sr04.Distance();
   distance = MeasureDistance();
   if (commode==2)
-    write_i16(a); 
+    write_i16(distance); 
   else
-    Serial.println(a);
+    Serial.println(distance);
 }
 
 int MeasureDistance(){               // a low pull on pin COMP/TRIG  triggering a sensor reading
@@ -657,6 +657,8 @@ inline void task4() {
       set_motor2(0);           //    mas fazemos por redundância e segurança)
       task3on = false;         // 4. Cancela qualquer aceleração progressiva em andamento
     }
+    else {obst = false;}
+    
     tim4=tim4+del4 ;
   }
 }
