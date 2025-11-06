@@ -41,7 +41,7 @@ BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
 BASE_BORDER_CRAWL_DURATION = 0.06
 BASE_TURN_DURATION = 0.75
-BASE_UTURN_RATIO = 1.9  # Fator sobre o tempo de giro de 90° (ajustável)
+BASE_UTURN_RATIO = 1.75  # Fator sobre o tempo de giro de 90° (ajustável)
 BASE_APPROACH_FLOOR = 100
 BASE_APPROACH_LOST = 110
 BASE_CELEBRATION_WIGGLE = 130
@@ -965,10 +965,10 @@ def front_left_right_corners(sx,sy,orient):
     # Interseções acessíveis baseadas no quadrado (sx,sy)
     # Para quadrado X,Y: interseções são (X,Y), (X,Y+1), (X+1,Y), (X+1,Y+1)
     # Mas acessíveis dependem da orientação
-    if orient==0:  return ( (sx,sy),     (sx,sy+1) )     # Norte: (X,Y), (X,Y+1)
-    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y), (X+1,Y+1)
-    if orient==2:  return ( (sx+1,sy+1), (sx+1,sy) )   # Sul: (X+1,Y+1), (X+1,Y)
-    if orient==3:  return ( (sx+1,sy),   (sx,sy) )     # Oeste: (X+1,Y), (X,Y)
+    if orient==0:  return ( (sx,sy),     (sx+1,sy) )     # Norte: (X,Y)  ↶ / (X+1,Y) ↷
+    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y) ↶ / (X+1,Y+1) ↷
+    if orient==2:  return ( (sx+1,sy+1), (sx,sy+1) )   # Sul: (X+1,Y+1) ↶ / (X,Y+1) ↷
+    if orient==3:  return ( (sx,sy+1),   (sx,sy) )     # Oeste: (X,Y+1) ↶ / (X,Y) ↷
     raise ValueError
 
 def get_accessible_intersections(sx, sy, orient):
@@ -976,33 +976,53 @@ def get_accessible_intersections(sx, sy, orient):
     left_corner, right_corner = front_left_right_corners(sx, sy, orient)
     return [left_corner, right_corner]
 
-def find_best_accessible_intersection(path, cur_dir):
-    """
-    Encontra a interseção no path A* que seja acessível da orientação atual,
-    escolhendo a mais próxima do início do caminho.
-    """
-    if len(path) <= 1:
-        return path[0] if path else None
+def choose_best_pivot_intersection(sx, sy, cur_dir, target, grid=GRID_NODES):
+    """Seleciona a interseção acessível que gera o melhor caminho A* até o destino.
 
-    # Para qualquer quadrado, determinar interseções acessíveis
-    # Assumindo que estamos saindo do quadrado path[0]
-    start_square = path[0]
-    sx, sy = start_square
-
+    Retorna (interseção, caminho) ou None se nada acessível produzir um caminho.
+    """
     accessible = get_accessible_intersections(sx, sy, cur_dir)
 
-    # Procurar a interseção no path que seja acessível e mais próxima do início
-    for intersection in path[1:]:  # Começar do path[1] (primeira interseção)
-        if intersection in accessible:
-            return intersection
+    best_choice = None
+    best_path = None
+    best_len = None
+    best_manhattan = None
 
-    # Se nenhuma interseção do path for acessível, escolher a acessível com menor
-    # distância para a primeira interseção do path
-    target_intersection = path[1]
-    best_accessible = min(accessible,
-                         key=lambda inter: manhattan(inter, target_intersection))
+    for candidate in accessible:
+        cx, cy = candidate
+        if not (0 <= cx < grid[0] and 0 <= cy < grid[1]):
+            continue
 
-    return best_accessible
+        path = a_star(candidate, target, grid)
+        if path is None:
+            continue
+
+        path_len = len(path)
+        dist = manhattan(candidate, target)
+
+        if best_choice is None:
+            best_choice = candidate
+            best_path = path
+            best_len = path_len
+            best_manhattan = dist
+            continue
+
+        if path_len < best_len:
+            best_choice = candidate
+            best_path = path
+            best_len = path_len
+            best_manhattan = dist
+            continue
+
+        if path_len == best_len and dist < best_manhattan:
+            best_choice = candidate
+            best_path = path
+            best_manhattan = dist
+
+    if best_choice is None:
+        return None
+
+    return best_choice, best_path
 
 def a_star(start,goal,grid=(5,5)):
     open_set={start}; came={}; g={start:0}; f={start:manhattan(start,goal)}
@@ -1202,6 +1222,8 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         print(f"   🛑 Parado para executar giro")
 
         # Executa a ação baseada no giro relativo (lógica do robot_pedro.py)
+        post_turn_settle_s = 0.0
+
         if rel == 'F':
             # GO_STRAIGHT: Já está virado para a direção certa, apenas atualiza direção
             print("   ➡️  Já virado para a direção certa, seguindo em frente...")
@@ -1235,8 +1257,13 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             drive_cap(arduino, 0, 0); time.sleep(0.4)
             print("   ✅ Meia-volta completa")
             cur_dir = want
+            post_turn_settle_s = 1.0
 
         print(f"   ✅ Ação executada")
+
+        if post_turn_settle_s > 0:
+            print(f"   ⏸️  Aguardando {post_turn_settle_s:.1f}s para estabilizar após a meia-volta...")
+            time.sleep(post_turn_settle_s)
 
         # Agora vai para a próxima interseção seguindo a linha
         if not go_to_next_intersection(arduino, camera, expected_node=nxt):
@@ -1357,26 +1384,33 @@ def main():
         print("🤖 MODO AUTOMÁTICO")
         print()
 
-        # Determinar interseção inicial baseada na orientação
+        # Determinar a interseção inicial usando o caminho mais curto viável
+        best_choice = choose_best_pivot_intersection(sx, sy, cur_dir, (tx, ty), GRID_NODES)
         accessible = get_accessible_intersections(sx, sy, cur_dir)
-        start_intersection = min(accessible, key=lambda inter: manhattan(inter, (tx, ty)))
+
+        if best_choice is None:
+            print("⚠️ Nenhum caminho acessível encontrado via escolha refinada; usando heurística simples.")
+            start_intersection = min(accessible, key=lambda inter: manhattan(inter, (tx, ty)))
+            chosen_path = a_star(start_intersection, (tx, ty), GRID_NODES)
+        else:
+            start_intersection, chosen_path = best_choice
+
+        if chosen_path is None:
+            print("❌ Nenhum caminho encontrado pelo A*.")
+            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+            return
+
         print(f"🎯 Interseção inicial escolhida: {start_intersection} (baseado na orientação e destino)")
 
         # Calcular A* da interseção inicial para o destino
         print("🤖 EXECUTANDO A* PARA CALCULAR CAMINHO...")
         send_basic_frame(camera, "Calculando caminho A*...")
 
-        path = a_star(start_intersection, (tx, ty), GRID_NODES)
-        if path is None:
-            print("❌ Nenhum caminho encontrado pelo A*.")
-            send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
-            return
+        print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in chosen_path])}")
+        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in chosen_path])}")
 
-        print(f"🗺️ CAMINHO: {' -> '.join([f'({x},{y})' for x,y in path])}")
-        send_basic_frame(camera, f"Caminho: {' -> '.join([f'({x},{y})' for x,y in path])}")
-
-        # Determinar a melhor interseção inicial baseada na orientação
-        target_intersection = find_best_accessible_intersection(path, cur_dir)
+        # Para o pivô inicial, queremos ir exatamente para a interseção escolhida
+        target_intersection = start_intersection
         print(f"🎯 Melhor interseção acessível: {target_intersection} (baseado na orientação)")
 
         # Executar lógica de navegação automática
@@ -1397,7 +1431,10 @@ def main():
 
         # Calcular caminho da interseção escolhida para o destino
         print(f"🔄 Calculando caminho da interseção {start_node} para destino {target}")
-        optimized_path = a_star(start_node, target, GRID_NODES)
+        if chosen_path and chosen_path[0] == start_node:
+            optimized_path = chosen_path
+        else:
+            optimized_path = a_star(start_node, target, GRID_NODES)
         if optimized_path is None:
             print("❌ Nenhum caminho encontrado da interseção escolhida.")
             send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
