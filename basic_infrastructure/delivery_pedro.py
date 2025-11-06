@@ -31,8 +31,8 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 110
-VELOCIDADE_CURVA = 110
+VELOCIDADE_BASE = 90
+VELOCIDADE_CURVA = 100
 Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
@@ -52,13 +52,13 @@ BAUDRATE = 115200
 
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
-START_SPEED  = 110        # reta cega
-TURN_SPEED   = 200        # giros 90/180 (mais rápidos)
+START_SPEED  = 90        # reta cega
+TURN_SPEED   = 190        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
-PIVOT_CAP       = 180     # limite superior do pivô - aumentado
+PIVOT_CAP       = 150     # limite superior do pivô - aumentado
 PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
-PIVOT_TIMEOUT   = 2.1   # Ligeiramente aumentado para virar um tiquinho mais
+PIVOT_TIMEOUT   = 1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
 ALIGN_BASE      = 90      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
 ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
@@ -71,17 +71,17 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 60% da altura
 Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
 CRAWL_SPEED = 100            # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.4       # Duração (segundos) do "anda mais um pouco" - aumentado
+CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco" - aumentado
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - conforme solicitado
-TURN_DURATION_S = 0.8        # Duração (segundos) para o giro - ajustado para 0.8s
+TURN_DURATION_S = 0.75        # Duração (segundos) para o giro - ajustado para 0.8s
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
 ROW_BAND_BOTTOM_FRAC    = 0.85
-ROW_PEAK_FRAC_THR       = 0.020
-LOSE_FRAMES_START       = 3
+ROW_PEAK_FRAC_THR       = 0.030
+LOSE_FRAMES_START       = 5
 START_TIMEOUT_S         = 6.0
 
 # ============================ VISÃO (robot2) ============================
