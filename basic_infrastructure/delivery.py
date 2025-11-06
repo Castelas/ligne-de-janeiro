@@ -587,6 +587,7 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
             target_y = -1.0
             is_border_intersection = False
             intersection_from_memory = False
+            target_from_memory = False
 
             if intersections:
                 filtered_intersections = [
@@ -724,6 +725,7 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
                 intersections = intersections + [target_intersection]
 
             intersection_source = "MEM" if intersection_from_memory else ("LIVE" if target_intersection is not None else "--")
+            target_from_memory = intersection_from_memory
 
             y_start_frac = BORDER_Y_START_SLOWING_FRAC if is_border_intersection else Y_START_SLOWING_FRAC
             y_target_frac = BORDER_Y_TARGET_STOP_FRAC if is_border_intersection else Y_TARGET_STOP_FRAC
@@ -789,6 +791,17 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
                 if conf == 0:
                     lost_frames += 1
                     print(f"   ⚠️  Aproximando, confiança perdida! (Frame {lost_frames})")
+
+                    if target_y != -1.0 and target_from_memory and is_border_intersection:
+                        last_known_y = target_y
+                        current_stop_is_border = True
+                        if last_known_y >= Y_TARGET_STOP:
+                            print("   🛑 Alvo de memória atingido. 'Andando mais um pouco'...")
+                            state = 'STOPPING'
+                            action_start_time = time.time()
+                            approach_start_time = 0.0
+                            last_known_y = -1.0
+                            continue
 
                     if lost_frames >= LOST_MAX_FRAMES:
                         threshold_hit = (lost_frames == LOST_MAX_FRAMES)
