@@ -61,21 +61,21 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
-CRAWL_SPEED = 95             # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.12      # Duração (segundos) do "anda mais um pouco" - ajustada
+Y_TARGET_STOP_FRAC = 0.94    # Para um pouco antes do limite inferior
+CRAWL_SPEED = 90             # Velocidade baixa para o "anda mais um pouco"
+CRAWL_DURATION_S = 0.08      # Duração (segundos) do "anda mais um pouco" - ajustada
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - aumentado para giros mais precisos
 TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ajustado para 0.75s
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
 BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseções somem antes)
-BORDER_Y_TARGET_STOP_FRAC = 0.88    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
+BORDER_Y_TARGET_STOP_FRAC = 0.84    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
-INTERSECTION_MEMORY_GROW_FRAC_PER_S = 1.10  # Fração de altura que projetamos por segundo quando só temos memória
+INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.95  # Fração de altura projetada por segundo quando só temos memória
 APPROACH_TIMEOUT_S = 2.5            # Tempo máximo preso em APPROACHING antes de forçar parada
-APPROACH_FLOOR_SPEED = 105          # Velocidade mínima desejada durante aproximação com linha
-APPROACH_LOST_SPEED = 115           # Velocidade usada ao aproximar sem confiança na linha
+APPROACH_FLOOR_SPEED = 100          # Velocidade mínima desejada durante aproximação com linha
+APPROACH_LOST_SPEED = 110           # Velocidade usada ao aproximar sem confiança na linha
 
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
@@ -711,7 +711,8 @@ def go_to_next_intersection(arduino, camera):
                     if denom > 1e-6:
                         progress = (last_known_y - Y_START_SLOWING) / denom
                     progress = float(np.clip(progress, 0.0, 1.0))
-                    target_speed = VELOCIDADE_BASE - (VELOCIDADE_BASE - APPROACH_FLOOR_SPEED) * progress
+                    eased = progress ** 1.35
+                    target_speed = VELOCIDADE_BASE - (VELOCIDADE_BASE - APPROACH_FLOOR_SPEED) * eased
                     base_speed = int(np.clip(target_speed, APPROACH_FLOOR_SPEED, VELOCIDADE_MAX))
                     v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
 
