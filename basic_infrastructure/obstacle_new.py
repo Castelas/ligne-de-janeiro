@@ -11,7 +11,7 @@ import serial
 
 # ============================= PARÂMETROS GERAIS =============================
 # --- REDE ---
-SERVER_IP = "192.168.137.176"     # <--- COLOQUE o IP do servidor (control.py)
+SERVER_IP = "192.168.137.22"     # <--- COLOQUE o IP do servidor (control.py)
 MY_ID     = "bot001"             # identificador do robô na rede
 
 # --- VISÃO ---
@@ -301,7 +301,7 @@ def main():
     # --- Arduino ---
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
-        arduino.write(b'A10')
+        arduino.write(b'A00')
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
         ativar_protecao_obstaculos(arduino)
     except Exception as e:
