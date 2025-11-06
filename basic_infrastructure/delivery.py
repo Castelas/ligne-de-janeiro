@@ -210,18 +210,123 @@ def line_intersection(line1, line2):
 def detect_intersections(mask):
     segments = detect_segments(mask)
     lines = segments_to_lines_rhotheta(segments)
-    if not lines: return [], []
-    vertical   = [l for l in lines if _angle_diff(l[1], 0.0) < _deg(15)]
-    horizontal = [l for l in lines if _angle_diff(l[1], np.pi/2) < _deg(15)]
+
     H, W = mask.shape[:2]
-    pts = []
-    for lv in vertical:
-        for lh in horizontal:
-            p = line_intersection(lv, lh)
-            if p is None: continue
-            x, y = p
-            if 0 <= x < W and 0 <= y < H: pts.append((x, y))
-    pts = _dedup_points(pts, radius=25)
+    pts_hough = []
+
+    if lines:
+        vertical   = [l for l in lines if _angle_diff(l[1], 0.0) < _deg(15)]
+        horizontal = [l for l in lines if _angle_diff(l[1], np.pi/2) < _deg(15)]
+
+        for lv in vertical:
+            for lh in horizontal:
+                p = line_intersection(lv, lh)
+                if p is None:
+                    continue
+                x, y = p
+                if 0 <= x < W and 0 <= y < H:
+                    pts_hough.append((x, y))
+    else:
+        vertical = []
+        horizontal = []
+
+    # Fallback: detect strong corners directly on the mask to help with border "L" intersections
+    corner_candidates = []
+    try:
+        corners = cv2.goodFeaturesToTrack(
+            mask,
+            maxCorners=40,
+            qualityLevel=0.01,
+            minDistance=18,
+            blockSize=9,
+            useHarrisDetector=True,
+            k=0.04,
+        )
+    except cv2.error:
+        corners = None
+
+    if corners is not None:
+        for c in corners:
+            x, y = c.ravel()
+            x_i, y_i = int(round(x)), int(round(y))
+            if not (0 <= x_i < W and 0 <= y_i < H):
+                continue
+
+            # Pequena verificação de vizinhança para evitar ruído isolado
+            pad = 6
+            x0 = max(0, x_i - pad)
+            x1 = min(W, x_i + pad + 1)
+            y0 = max(0, y_i - pad)
+            y1 = min(H, y_i + pad + 1)
+            patch = mask[y0:y1, x0:x1]
+            if patch.size == 0:
+                continue
+            white_frac = float(np.count_nonzero(patch)) / float(patch.size)
+            if white_frac < 0.25:
+                continue
+
+            corner_candidates.append((x_i, y_i))
+
+    pts_hough = _dedup_points(pts_hough, radius=22)
+
+    def _direction_present(region, axis="x", min_frac=0.12, min_pixels=14, min_span=3):
+        if region.size == 0:
+            return False
+        white = np.count_nonzero(region)
+        if white < min_pixels:
+            return False
+        frac = white / float(region.size)
+        if frac < min_frac:
+            return False
+        if axis == "x":
+            projection = region.sum(axis=0)
+        else:
+            projection = region.sum(axis=1)
+        span = np.count_nonzero(projection > 0)
+        return span >= min_span
+
+    def _looks_like_intersection(mask_img, x, y, reach=28, thickness=5):
+        y0 = max(0, y - thickness)
+        y1 = min(H, y + thickness + 1)
+        x0 = max(0, x - thickness)
+        x1 = min(W, x + thickness + 1)
+
+        left  = mask_img[y0:y1, max(0, x - reach):x]
+        right = mask_img[y0:y1, x + 1:min(W, x + 1 + reach)]
+        up    = mask_img[max(0, y - reach):y, x0:x1]
+        down  = mask_img[y + 1:min(H, y + 1 + reach), x0:x1]
+
+        left_present  = _direction_present(left, axis="x")
+        right_present = _direction_present(right, axis="x")
+        up_present    = _direction_present(up, axis="y")
+        down_present  = _direction_present(down, axis="y")
+
+        horizontal_present = left_present or right_present
+        vertical_present = up_present or down_present
+
+        if not (horizontal_present and vertical_present):
+            return False
+
+        return True
+
+    dedup_radius = 22
+    fallback_pts = []
+    for cand in corner_candidates:
+        cx, cy = cand
+        if any(np.hypot(cx - hx, cy - hy) < dedup_radius for hx, hy in pts_hough):
+            continue
+        if not _looks_like_intersection(mask, cx, cy):
+            continue
+        fallback_pts.append((cx, cy))
+
+    fallback_pts = _dedup_points(fallback_pts, radius=dedup_radius)
+
+    pts = list(pts_hough)
+    for fx, fy in fallback_pts:
+        if any(np.hypot(fx - px, fy - py) < dedup_radius for px, py in pts):
+            continue
+        pts.append((fx, fy))
+
     return pts, (vertical + horizontal)
 
 def processar_imagem(imagem):
