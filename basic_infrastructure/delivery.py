@@ -210,18 +210,129 @@ def line_intersection(line1, line2):
 def detect_intersections(mask):
     segments = detect_segments(mask)
     lines = segments_to_lines_rhotheta(segments)
-    if not lines: return [], []
-    vertical   = [l for l in lines if _angle_diff(l[1], 0.0) < _deg(15)]
-    horizontal = [l for l in lines if _angle_diff(l[1], np.pi/2) < _deg(15)]
+
     H, W = mask.shape[:2]
     pts = []
-    for lv in vertical:
-        for lh in horizontal:
-            p = line_intersection(lv, lh)
-            if p is None: continue
-            x, y = p
-            if 0 <= x < W and 0 <= y < H: pts.append((x, y))
-    pts = _dedup_points(pts, radius=25)
+
+    if lines:
+        vertical   = [l for l in lines if _angle_diff(l[1], 0.0) < _deg(15)]
+        horizontal = [l for l in lines if _angle_diff(l[1], np.pi/2) < _deg(15)]
+
+        for lv in vertical:
+            for lh in horizontal:
+                p = line_intersection(lv, lh)
+                if p is None:
+                    continue
+                x, y = p
+                if 0 <= x < W and 0 <= y < H:
+                    pts.append((x, y))
+    else:
+        vertical = []
+        horizontal = []
+
+    # Fallback: detect strong corners directly on the mask to help with border "L" intersections
+    corner_candidates = []
+    try:
+        corners = cv2.goodFeaturesToTrack(
+            mask,
+            maxCorners=40,
+            qualityLevel=0.01,
+            minDistance=18,
+            blockSize=9,
+            useHarrisDetector=True,
+            k=0.04,
+        )
+    except cv2.error:
+        corners = None
+
+    if corners is not None:
+        for c in corners:
+            x, y = c.ravel()
+            x_i, y_i = int(round(x)), int(round(y))
+            if not (0 <= x_i < W and 0 <= y_i < H):
+                continue
+
+            # Pequena verificação de vizinhança para evitar ruído isolado
+            pad = 6
+            x0 = max(0, x_i - pad)
+            x1 = min(W, x_i + pad + 1)
+            y0 = max(0, y_i - pad)
+            y1 = min(H, y_i + pad + 1)
+            patch = mask[y0:y1, x0:x1]
+            if patch.size == 0:
+                continue
+            white_frac = float(np.count_nonzero(patch)) / float(patch.size)
+            if white_frac < 0.25:
+                continue
+
+            corner_candidates.append((x_i, y_i))
+
+    if corner_candidates:
+        arm_len = max(8, int(round(min(H, W) * 0.08)))
+        arm_half_thickness = max(3, arm_len // 4)
+        center_half = max(2, arm_half_thickness - 1)
+        line_presence_thr = 0.22
+
+        def _region_white_ratio(x0, x1, y0, y1):
+            x0 = max(0, x0)
+            x1 = min(W, x1)
+            y0 = max(0, y0)
+            y1 = min(H, y1)
+            if x1 <= x0 or y1 <= y0:
+                return 0.0
+            region = mask[y0:y1, x0:x1]
+            if region.size == 0:
+                return 0.0
+            return float(np.count_nonzero(region)) / float(region.size)
+
+        filtered_corners = []
+        for x_i, y_i in corner_candidates:
+            center_ratio = _region_white_ratio(
+                x_i - center_half,
+                x_i + center_half + 1,
+                y_i - center_half,
+                y_i + center_half + 1,
+            )
+            if center_ratio < 0.35:
+                continue
+
+            left_ratio = _region_white_ratio(
+                x_i - arm_len,
+                x_i,
+                y_i - arm_half_thickness,
+                y_i + arm_half_thickness + 1,
+            )
+            right_ratio = _region_white_ratio(
+                x_i + 1,
+                x_i + 1 + arm_len,
+                y_i - arm_half_thickness,
+                y_i + arm_half_thickness + 1,
+            )
+            up_ratio = _region_white_ratio(
+                x_i - arm_half_thickness,
+                x_i + arm_half_thickness + 1,
+                y_i - arm_len,
+                y_i,
+            )
+            down_ratio = _region_white_ratio(
+                x_i - arm_half_thickness,
+                x_i + arm_half_thickness + 1,
+                y_i + 1,
+                y_i + 1 + arm_len,
+            )
+
+            horizontal_present = max(left_ratio, right_ratio) >= line_presence_thr
+            vertical_present = max(up_ratio, down_ratio) >= line_presence_thr
+
+            if not (horizontal_present and vertical_present):
+                continue
+
+            filtered_corners.append((x_i, y_i))
+
+        if filtered_corners:
+            pts.extend(filtered_corners)
+
+    pts = _dedup_points(pts, radius=22)
     return pts, (vertical + horizontal)
 
 def processar_imagem(imagem):
