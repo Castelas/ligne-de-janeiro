@@ -24,13 +24,13 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 110
-VELOCIDADE_CURVA = 110
+VELOCIDADE_BASE = 130
+VELOCIDADE_CURVA = 130
 Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
-SEARCH_SPEED    = 100
+SEARCH_SPEED    = 110
 LOST_MAX_FRAMES = 5
 DEAD_BAND       = 3
 ROI_BOTTOM_FRAC = 0.55
@@ -45,7 +45,7 @@ BAUDRATE = 115200
 
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
-START_SPEED  = 110        # reta cega
+START_SPEED  = 120        # reta cega
 TURN_SPEED   = 190        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
@@ -559,6 +559,11 @@ def go_to_next_intersection(arduino, camera):
             Y_START_SLOWING = h * y_start_frac
             Y_TARGET_STOP = h * y_target_frac
 
+            recent_intersection = (
+                target_intersection is not None or
+                (last_intersection_point is not None and (now - last_intersection_time) <= INTERSECTION_MEMORY_S)
+            )
+
             if target_y != -1.0:
                 print(f"   🎯 Interseção Y={target_y:.0f} [{intersection_source}] (border={is_border_intersection}) | alvo={Y_TARGET_STOP:.0f}")
                 should_approach = target_y >= Y_START_SLOWING
@@ -583,8 +588,17 @@ def go_to_next_intersection(arduino, camera):
                 elif conf == 0:
                     lost_frames += 1
                     if lost_frames >= LOST_MAX_FRAMES:
-                        state = 'LOST'
-                        last_known_y = -1.0
+                        threshold_hit = (lost_frames == LOST_MAX_FRAMES)
+                        pending_stop = last_known_y > Y_START_SLOWING
+                        if not recent_intersection and not pending_stop:
+                            if threshold_hit:
+                                print("   ❌ Linha perdida (FOLLOW). Mudando para LOST.")
+                            state = 'LOST'
+                            last_known_y = -1.0
+                        else:
+                            lost_frames = min(lost_frames, LOST_MAX_FRAMES)
+                            if threshold_hit:
+                                print("   🛡️ Linha ausente, mas interseção recente → mantendo FOLLOW.")
                 else:
                     lost_frames = 0
                     print(f"   ⏳ Aguardando aproximação: target_y={target_y:.0f} <= Y_START_SLOWING={Y_START_SLOWING:.0f}")
@@ -598,9 +612,17 @@ def go_to_next_intersection(arduino, camera):
                     print(f"   ⚠️  Aproximando, confiança perdida! (Frame {lost_frames})")
 
                     if lost_frames >= LOST_MAX_FRAMES:
-                        print("   ❌ Linha perdida durante aproximação.")
-                        state = 'LOST'
-                        last_known_y = -1.0
+                        threshold_hit = (lost_frames == LOST_MAX_FRAMES)
+                        pending_stop = last_known_y > Y_START_SLOWING
+                        if not recent_intersection and not pending_stop:
+                            if threshold_hit:
+                                print("   ❌ Linha perdida durante aproximação. Mudando para LOST.")
+                            state = 'LOST'
+                            last_known_y = -1.0
+                        else:
+                            lost_frames = min(lost_frames, LOST_MAX_FRAMES)
+                            if threshold_hit:
+                                print("   🛡️ Aproximação: mantendo estado com interseção recente/progresso.")
 
                 else:
                     lost_frames = 0
