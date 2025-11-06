@@ -16,31 +16,24 @@
 // programme tournant sur les cartes arduino pour la
 // commande des moteurs du robot
 //
-// *** MOD v1.1 (Emergência Ultrassom) ***
-//  • Adicionada máquina de estados em task4 para ESTOP,
-//    espera de 5s e ré automática.
-//  • Comunicação assíncrona (ESTOP, OBSTACLE, RESUME) com RPi.
-//  • task4 é forçada a ligar na conexão.
-//
 //////////////////////////////////////////////////////
 
 #include "parameters.h"
 #include <Servo.h>
-#include "SR04.h"
 
 #define digitalPinToInterrupt(p)  ((p) == 2 ? 0 : ((p) == 3 ? 1 : -1))
-
-char feedback ;
-// si non nul indique que les commandes doivent renvoyer un acquittement
+#define ULTRASONIC_STOP_DISTANCE_CM 15  // Define a distância em cm para parada
+unsigned long distance = 0;
+char feedback ;   // si non nul indique que les commandes doivent renvoyer un acquittement
 
 // gestion du multitache.
-//définition de la période de chaque tache
+définition de la période de chaque tache
 int del1 = 100;  // délai tache 1 de test d'arrivée
 int del2 = 500;
 // délai regulation moteur
 int del3 = 100;   // démarrage progressif des moteurs
 int del4 = 100;
-// tache de détection des obstacles (ULTRASSOM)
+// tache de détection des obstacles
 int del5 = 200;  // tache de détection des obstacles
 int tim1,tim2,tim3,tim4,tim5 ;
 // temps du prochain evenement
@@ -50,20 +43,10 @@ bool task2on=true ;
 bool task3on=false ;
 // lancement de la tache 3 d'accélération progressive
 bool task4on=false ;
-// lançamento da task 4 (ultrassom) - será ativada na conexão
+// lancement de la tache 4 de détection de collision par IR
 bool task5on=false ;
 // lancement de la tache 5 de rotation du servomoteur
-bool obst=false ;           // obstacle détecté (BLOQUEIA MOTORES)
-
-// --- Globals para Parada de Emergência (Ultrassom) ---
-enum ObstacleState { OS_IDLE, OS_WAITING, OS_REVERSING };
-ObstacleState obsState = OS_IDLE;
-unsigned long obsTimer = 0; // Timer para espera e ré
-const unsigned long OBS_WAIT_DURATION = 5000; // 5 segundos de espera
-const unsigned long OBS_REVERSE_DURATION = 1500; // 1.5 segundos de ré
-const int OBS_REVERSE_SPEED = -100; // Velocidade de ré
-const int OBSTACLE_DIST_CM = 15; // Distância de ativação (15 cm)
-// --- Fim Globals Parada de Emergência ---
+bool obst=false ;           // obstacle détecté
 
 char c,CharIn,m;
 bool ConnOn ;
@@ -89,38 +72,35 @@ long int v2,lv2 ;
 long int v3,lv3 ;
 int vitesse1,vitesse2 ;
 
-SR04 sr04 = SR04(ECHO_PIN,TRIG_PIN);
-// gestion du capteur ultrasonore
 long a;
 int v;
-
 // gestion du servomoteur
-Servo frontServo ;
-// create servo objects
-int servopos= 0 ;    // commande de position du servomoteur
-int servomin=30 ;
-// position min du servomoteur
+Servo frontServo ;    // create servo objects
+int servopos= 0 ;
+// commande de position du servomoteur
+int servomin=30 ;     // position min du servomoteur
 int servomax=150 ;
-int servospeed=10 ;   // vitesse de rotation du servomoteur
-int servosens=1 ;
-// sens de rotation du servomoteur
+int servospeed=10 ;
+// vitesse de rotation du servomoteur
+int servosens=1 ;      // sens de rotation du servomoteur
 
 
 ///////////////////////////////////////////////////////////////////////////
 //   mise en route des taches périodiques
 /////////////////////////////////////////////////////////////////////////
 inline void Task1On()
-{ task1on=true;  tim1 = (int)millis()+del1;
-}
+{ task1on=true;
+tim1 = (int)millis()+del1; }
 inline void Task2On()
 { task2on=true;  tim2 = (int)millis()+del2; }
 inline void Task3On()
-{ task3on=true;  tim3 = (int)millis()+del3; }
+{ task3on=true;  tim3 = (int)millis()+del3;
+}
 inline void Task4On()
-{ task4on=true;
-tim4 = (int)millis()+del4; }
+{ task4on=true;  tim4 = (int)millis()+del4; }
 inline void Task5On()
-{ task5on=true;  tim5 = (int)millis()+del5; }
+{ task5on=true;  tim5 = (int)millis()+del5;
+}
 
 ///////////////////////////////////////////////////////////////////////////
 //
@@ -128,45 +108,46 @@ inline void Task5On()
 //
 /////////////////////////////////////////////////////////////////////////
 
-void dummy() {  Serial.println("ER");
-}
+void dummy() {  Serial.println("ER"); }
 
 void init_arduino() {
 
 // on eteint les moteurs
-  nivM1=0 ; nivM2=0 ;     
+  nivM1=0 ;
+nivM2=0 ;     
   set_motor1(nivM1) ;
   set_motor2(nivM2) ;
   
-  servomin=30 ;
-// position min du servomoteur
+  servomin=30 ;     // position min du servomoteur
   servomax=150 ;
   servopos=(servomin+servomax)/2 ;
   frontServo.write(servopos);
-  task5on=false ;
+task5on=false ;
   obst=false ;
 
   task1on=false ;       
-  Task2On() ;
-task3on=false ;       
-  task4on=false ; // Será ativada na conexão
-  task5on=false ;
-  
-  obsState = OS_IDLE; // Reseta estado do obstáculo
+  Task2On() ;    
+  task3on=false ;       
+  task4on=false ;
+  task5on=false ;     
 }
 
 void setup() {
-  Serial.begin(SERIAL_BAUD); // vitesse de la liaison série
-  Serial.setTimeout(SERIAL_TIMEOUT);
-// timeout pour attendre une fin de message
+  Serial.begin(SERIAL_BAUD);
+// vitesse de la liaison série
+  Serial.setTimeout(SERIAL_TIMEOUT); // timeout pour attendre une fin de message
   pinMode(motor1PWM, OUTPUT);
-  pinMode(motor1SNS, OUTPUT);
+pinMode(motor1SNS, OUTPUT);
   pinMode(motor2PWM, OUTPUT);
   pinMode(motor2SNS, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  digitalWrite(TRIG_PIN,HIGH);
+  pinMode(ECHO_PIN,INPUT);
+
   tim1 = (int)millis()+del1;
-tim2 = (int)millis()+del2;
+  tim2 = (int)millis()+del2;
   tim3 = (int)millis()+del3;
-  tim4 = (int)millis()+del4;
+tim4 = (int)millis()+del4;
   tim5 = (int)millis()+del5;
   frontServo.attach(ServofrontPin);
 
@@ -203,7 +184,7 @@ if (CharIn=='A') CONNECT_code();        // demande de connection
   if (task3on) task3() ;
 // tache d'accélération progressive des moteurs
   if (task4on) task4() ;
-// tache de détection de collision (ULTRASSOM)
+// tache de détection de collision
   if (task5on) task5() ;
 // tache de détection de collision
 }
@@ -288,11 +269,8 @@ void write_i32(long num)
 
 // code de mise en route de moteur
 inline void set_motor(char MPWM, char MSNS, char sns, int nivm)
-{ 
-    // A flag obst==true bloque NOVOS comandos, exceto se for 0
-    if (obst==true && nivm != 0) nivm=0 ; 
+{ if (obst==true) nivm=0 ;
 // si on n'a pas d'obstcle
-    
     analogWrite(MPWM,abs(nivm));
     digitalWrite(MSNS,sns?(nivm>=0?0:1):(nivm>=0?1:0)) ;
 }
@@ -316,10 +294,9 @@ inline void set_motor2(int nivm)
 // routine renvoyant le message d'acquitement simple (OK ou OBstacle)
 inline void RetAcquitSimpl()
 {
-    // Não envia mais "OB" aqui, pois será tratado pela task4
     if (feedback==1) 
-      Serial.println("OK");
-// else Serial.println("OB"); // Removido
+      if (obst==false) Serial.println("OK");
+else Serial.println("OB");
 }
 
 
@@ -333,12 +310,6 @@ ConnOn = true ;
   commode= GetChar(0);
   if (commode>0) commode-='0'; else commode=0 ;
   init_arduino() ;
-
-  // --- ATIVAÇÃO DA TASK DE ULTRASSOM ---
-  Task4On(); // Liga a task4 (Ultrassom)
-  obsState = OS_IDLE; // Garante estado inicial
-  obst = false;
-  // --- FIM ATIVAÇÃO ---
 
   RetAcquitSimpl();
 if (feedback==2)
@@ -444,7 +415,7 @@ vitdem=GetInt(25) ;     // on lit la vitesse
 // on lance la tache d'accélération
   if (obst==false) 
     Task3On();
-// resposta da tarefa de aceleração é bloqueada por 'obst'
+// réponse de la commande
   RetAcquitSimpl();
   if (feedback==2)
     if (obst==false)
@@ -500,14 +471,14 @@ Serial.println(retstring); }
 
 
 // code de mise en route de la protection moteur
-// (agora é controlado automaticamente pela CONNECT_code)
+// chaque appel à cette commande réinitialise la détection et autorise le redémarrage des moteurs 
 void PROTECT_IR_code() {
   delay(1);
 // indispensable et pas trop long
   m=GetChar(0);
-  if (m=='0')   { task4on=false ; obst=false ; obsState = OS_IDLE;
-} // Desliga manualmente
-  else if (m=='1')  { Task4On() ;  obst=false ; obsState = OS_IDLE; } // Liga manualmente
+  if (m=='0')   { task4on=false ; obst=false ;
+}
+  else if (m=='1')  { Task4On() ;  obst=false ; }    
   if (feedback==1) Serial.println("OK");
 if (feedback==2)
   {  Serial.print("OK protection moteur : ");
@@ -536,8 +507,10 @@ if (commode==2)
 }
 
 
+// renvoie le temps courant et la position d'un encodeur
 void  ENCODERS_TIME_code() {
-  delay(1); // indispensable et pas trop long sinon le caractère suivant n'est pas arrivé
+  delay(1);
+// indispensable et pas trop long sinon le caractère suivant n'est pas arrivé
   c=GetChar(0);
 if (c=='1') 
     v2=CountIncr1; 
@@ -579,23 +552,33 @@ Serial.println(analogRead(IR_pin)); }
 
 // renvoie la valeur du capteur ultrasons
 void  ULTRASON_code() {
-  a=sr04.Distance();
-  if (commode==2)
-    write_i16(a);
-else
-    Serial.println(a);
+  // a=sr04.Distance();
+  distance = MeasureDistance();
+if (commode==2)
+    write_i16(distance); 
+  else
+    Serial.println(distance);
+}
+
+int MeasureDistance(){               // a low pull on pin COMP/TRIG  triggering a sensor reading
+  digitalWrite(TRIG_PIN, LOW);
+digitalWrite(TRIG_PIN, HIGH);      // reading Pin PWM will output pulses
+  unsigned long distance = pulseIn(ECHO_PIN,LOW);
+  distance = distance/50;
+// every 50us low level stands for 1cm
+  return distance;
 }
 
 // renvoie la tension sur le moteur
 void  VALMOTOR_code() {
   if (commode==2)
-  { write_i16(nivM1);
-write_i16(nivM2);  write_i16(0);  write_i16(0);}
+  { write_i16(nivM1); 
+    write_i16(nivM2);  write_i16(0);
+write_i16(0);}
   else
   { Serial.print(nivM1);
     Serial.print(" ");
-    Serial.println(nivM2);
-}
+    Serial.println(nivM2); }
 }
 
 /////////////////////////////////////////////////////
@@ -608,16 +591,16 @@ void (*UpperFn[20])() = {           // tableau des fonctions pour un code en maj
   RESETENC_code,            // B
   DUALMOTOR_code,           // C
   DUALMOTORSLOW_code,       // D
-  dummy,               
-     // E
+  dummy,      
+              // E
   dummy,                    // F
   SERVO_code,               // G
   dummy,                    // H
-  PROTECT_IR_code,dummy,dummy,dummy,dummy, // I (Ultrassom),J,K,L,M
+  PROTECT_IR_code,dummy,dummy,dummy,dummy, // I,J,K,L,M
   ENCODER_DUAL_code,        // N
-  ENCODERS_TIME_code,       // O  
-  SPEED_DUAL_code,dummy, 
-   // P,Q
+  ENCODERS_TIME_code,    
+   // O  
+  SPEED_DUAL_code,dummy,    // P,Q
   INFRARED_TIME_code,       // R
   ULTRASON_code,            // S
   VALMOTOR_code             // T
@@ -630,7 +613,7 @@ void (*LowerFn[20])() = {             // tableau des fonctions pour un code en m
   dummy,                    // e
   dummy,SERVO_minmax,dummy, 
 // f,g,h
-  PROTECT_IR_code,dummy,dummy,dummy,dummy, // i (Ultrassom),J,K,L,M
+  PROTECT_IR_code,dummy,dummy,dummy,dummy, // i,J,K,L,M
   ENCODER_DUAL_code,        // n
   ENCODERS_TIME_code,       // o  
   SPEED_DUAL_code,dummy,    // p,q
@@ -716,87 +699,48 @@ tim3=tim3+del3 ;
   }
 }
 
-// tache de détection des obstacles (ULTRASSOM) - NOVA LÓGICA
+// tache de détection des obstacles
+
 inline void task4() {
-  if (((int)millis() - tim4) < 0) return; // Esperar pelo timer
-  tim4 = tim4 + del4; // Resetar timer
-
-  long d;
-
-  switch (obsState) {
-    case OS_IDLE:
-      d = sr04.Distance();
-// lê distância
-      bool objectPresent = (d > 0) && (d < OBSTACLE_DIST_CM);
-      
-      if (objectPresent) {
-        // 1. Obstáculo detectado
-        obst = true; // Ativa flag para bloquear comandos de motor
-nivM1 = 0; nivM2 = 0;
-        set_motor1(0); // Para motores imediatamente
-        set_motor2(0);
-task3on = false; // Cancela aceleração progressiva
-        
-        Serial.println("ESTOP"); // 2. Envia "ESTOP" para RPi
-        
-        obsTimer = millis(); // 3. Inicia timer 5s
-        obsState = OS_WAITING; 
-      } else {
-        // Garante que a flag esteja limpa se nenhum obstáculo
-        if (obst) {
-           obst = false; // Libera flag se estava presa
-}
-      }
-      break;
-
-    case OS_WAITING:
-      obst = true; // Mantém bloqueio RPi
+  if (((int)millis()-tim4)>0)  // se on a atteint le temps programmé
+  { 
+    
+    // #################### INÍCIO DA MUDANÇA ####################
+    
+    // Esta tarefa foi desativada conforme a solicitação.
+    // O Arduino não deve mais tomar decisões de parada autônoma.
+    // A lógica de obstáculo agora é gerenciada pelo Raspberry Pi
+    // enviando o comando 'S' e lendo o valor.
+    
+    /*
+    // Lê a distância do sensor ultrassônico
+    distance = MeasureDistance();
+    // Condição de parada:
+    // SE (o sensor IR detecta algo) OU (o ultrassônico detecta algo muito perto)
+    if ( distance > 0 && distance < ULTRASONIC_STOP_DISTANCE_CM )
+    {
+      // Se um obstáculo for detectado por qualquer um dos sensores:
+      obst = true;
+// 1. Ativa a flag de obstáculo
       nivM1 = 0; nivM2 = 0;
-      set_motor1(0); // Mantém parado
-      set_motor2(0);
+// 2. Zera as variáveis de velocidade
+      set_motor1(0);
+// 3. Para fisicamente os motores (esta chamada já checa a flag 'obst',
+      set_motor2(0);           //    mas fazemos por redundância e segurança)
+      task3on = false;
+// 4. Cancela qualquer aceleração progressiva em andamento
+    }
+    else {obst = false;}
+    */
 
-      // 4. Checa se 5s passaram
-      if (millis() - obsTimer > OBS_WAIT_DURATION) {
-        
-        // 5. Re-checa o sensor
-        d = sr04.Distance();
-        bool objectStillPresent = (d > 0) && (d < OBSTACLE_DIST_CM);
-        
-        if (objectStillPresent) {
-          // 6. Objeto ainda presente: envia "OBSTACLE" e inicia ré
-          Serial.println("OBSTACLE");
-          obsTimer = millis(); // Inicia timer da ré
-          obsState = OS_REVERSING;
-        } else {
-          // 7. Objeto sumiu: envia "RESUME"
-          Serial.println("RESUME");
-// (Usando Serial.println para notificar RPi)
-          obst = false; // Libera RPi
-          obsState = OS_IDLE; // Volta ao normal
-        }
-      }
-      break;
-      
-    case OS_REVERSING:
-      obst = true; // Mantém bloqueio RPi
-      
-      if (millis() - obsTimer < OBS_REVERSE_DURATION) {
-        // 8. Dando ré (controlado pelo Arduino)
-        set_motor(motor1PWM, motor1SNS, 0, OBS_REVERSE_SPEED);
-        set_motor(motor2PWM, motor2SNS, 1, OBS_REVERSE_SPEED);
-      } else {
-        // 9. Ré concluída. Para tudo e volta a esperar.
-        set_motor1(0);
-        set_motor2(0);
-        obsTimer = millis(); // Reinicia o timer de 5s
-        obsState = OS_WAITING; // Volta a esperar (checar se objeto saiu)
-      }
-      break;
-  }
+    // #################### FIM DA MUDANÇA ####################
+    
+    tim4=tim4+del4 ;
 }
-// (tim4 é resetado no início da task)
+}
 
 // tache de rotation du servomoteur
+
 inline void task5() {
   if (((int)millis()-tim5)>0)  // si on a atteint le temps programmé
   { 
