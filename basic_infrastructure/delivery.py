@@ -24,19 +24,19 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-DEFAULT_SPEED_LEVEL = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+DEFAULT_SPEED_LEVEL = 1.0  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
 speed = DEFAULT_SPEED_LEVEL
 
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
 BASE_SEARCH_SPEED = 110
-BASE_START_SPEED = 130
+BASE_START_SPEED = 110
 BASE_ALIGN_BASE = 100
 BASE_ALIGN_CAP = 135
 BASE_PIVOT_MIN = 150
 BASE_PIVOT_CAP = 150
 BASE_TURN_SPEED = 150
-BASE_STRAIGHT_SPEED = 130
+BASE_STRAIGHT_SPEED = 110
 BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
 BASE_BORDER_CRAWL_DURATION = 0.10
@@ -110,7 +110,7 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 0.94    # Para um pouco antes do limite inferior
+Y_TARGET_STOP_FRAC = 0.92    # Para um pouco antes do limite inferior
 CRAWL_SPEED = _scale_speed(BASE_CRAWL_SPEED, min_value=70, max_value=VELOCIDADE_MAX)
 speed_multiplier_for_time = max(speed_multiplier, 0.7)
 CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
