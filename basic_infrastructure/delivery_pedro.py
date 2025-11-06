@@ -25,7 +25,8 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-speed = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+DEFAULT_SPEED_LEVEL = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+speed = DEFAULT_SPEED_LEVEL
 
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
@@ -868,7 +869,11 @@ def go_to_next_intersection(arduino, camera):
             elif state == 'STOPPING': state_color = (255, 0, 255)  # Magenta
             elif state == 'STOPPED': state_color = (255, 0, 0)  # Azul
 
-            cv2.putText(display_frame, f"State: {state}", (10, 30),
+            hud_state = (
+                "APPROACHING B." if (state == 'APPROACHING' and is_border_intersection) else state
+            )
+
+            cv2.putText(display_frame, f"State: {hud_state}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, state_color, 2)
             cv2.putText(display_frame, f"Conf: {conf}  Lost: {lost_frames}", (10, 55),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
