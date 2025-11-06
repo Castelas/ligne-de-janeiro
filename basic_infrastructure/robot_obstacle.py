@@ -1,4 +1,4 @@
-# robot2.py — seguidor de linha com ROI, confiança e estado FOLLOW/LOST (sem derivativo)
+# robot2.py — seguidor de linha com giro 180 em obstáculo
 
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -11,7 +11,7 @@ import serial
 
 # ============================= PARÂMETROS GERAIS =============================
 # --- REDE ---
-SERVER_IP = "192.168.137.22"     # <--- COLOQUE o IP do servidor (control.py)
+SERVER_IP = "192.168.137.176"     # <--- COLOQUE o IP do servidor (control.py)
 MY_ID     = "bot001"             # identificador do robô na rede
 
 # --- VISÃO ---
@@ -36,8 +36,14 @@ VELOCIDADE_MAX = 255
 MODO_AUTO   = "AUTOMATICO"
 MODO_MANUAL = "MANUAL"
 
-# --- MUDANÇA: Novo estado ---
-MODO_OBSTACLE = "OBSTACLE"
+# --- MUDANÇA: Novos estados e parâmetros de giro ---
+MODO_OBSTACLE_TURN = "TURNING_180"
+
+# !! CALIBRAR ESTE VALOR !!
+# DURAÇÃO (em segundos) PARA O GIRO DE 180 GRAUS.
+# Aumente ou diminua conforme necessário.
+TURN_180_DURATION = 1.5 
+TURN_180_SPEED = VELOCIDADE_CURVA # Velocidade usada para girar
 # --- FIM MUDANÇA ---
 
 # Ajustes (detecção/recuperação)
@@ -144,6 +150,7 @@ def detect_intersections(mask):
             if 0 <= x < W and 0 <= y < H: pts.append((x, y))
     pts = _dedup_points(pts, radius=25)
     return pts, (vertical + horizontal)
+
 # ====================== DETECÇÃO PARA CONTROLE (ROI/CONFIANÇA) =============
 # (Função processar_imagem... sem alterações)
 def processar_imagem(imagem):
@@ -219,20 +226,15 @@ def calcular_velocidades_auto(erro, base_speed):
     v_dir = int(np.clip(v_dir, 15, VELOCIDADE_MAX))
     return v_esq, v_dir
 
-# --- MUDANÇA: Função agora lê a resposta (OK/OB) ---
+# (Função enviar_comando_motor_serial... sem alterações)
 def enviar_comando_motor_serial(arduino, v_esq, v_dir):
-    # Envia velocidades com sinal; negativos significam ré
     comando = f"C {v_dir} {v_esq}\n"
     arduino.write(comando.encode('utf-8'))
     try:
-        # Tenta ler a resposta "OK" ou "OB"
         resposta = arduino.readline().decode('utf-8').strip()
         return resposta
     except Exception as e:
-        # print(f"Erro serial: {e}") # Descomente para depurar
-        return "" # Retorna vazio se houver erro/timeout
-# --- FIM MUDANÇA ---
-
+        return ""
 # ================================= MAIN =====================================
 def main():
     # --- ZMQ ---
@@ -258,10 +260,9 @@ def main():
         arduino.write(b'A10\n')
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
         
-        # --- MUDANÇA: Ativa a task4 (detecção de obstáculo) ---
+        # Ativa a task4 (detecção de obstáculo)
         arduino.write(b'I1\n')
         print(f"Protecao: {arduino.readline().decode('utf-8').strip()}")
-        # --- FIM MUDANÇA ---
         
     except Exception as e:
         print(f"Erro inicial Arduino: {e}")
@@ -271,9 +272,10 @@ def main():
     last_err = 0.0
     lost_frames = 0
     state = 'FOLLOW'
-    
-    # --- MUDANÇA: Guarda a resposta do Arduino ---
     resposta_arduino = "OK" 
+    
+    # --- MUDANÇA: Timer para o giro ---
+    turn_start_time = 0.0
     # --- FIM MUDANÇA ---
 
     current_mode = MODO_AUTO
@@ -304,25 +306,17 @@ def main():
             
             key = last_key
             
-            # --- MUDANÇA: Lógica de estado principal ---
+            # --- MUDANÇA: Lógica de estado principal (com giro 180) ---
             
-            # 1. Verifica se o Arduino sinalizou um obstáculo
-            if resposta_arduino == "OB":
-                state = MODO_OBSTACLE
-            
-            # 2. Se não há obstáculo, mas estávamos parados,
-            #    força o estado LOST para procurar a linha
-            elif state == MODO_OBSTACLE and resposta_arduino == "OK":
-                state = 'LOST' 
-                lost_frames = 0 # Reseta contagem
-            
-            # 3. Lógica de toggle manual
+            # 1. Lógica de toggle manual (tem prioridade)
             toggled = (key == 'm' and prev_key != 'm'); prev_key = key
             if toggled:
                 current_mode = MODO_MANUAL if current_mode == MODO_AUTO else MODO_AUTO
                 print(f"Modo: {current_mode}")
                 v_esq, v_dir = 0, 0
-                state = 'FOLLOW' # Reseta estado ao trocar modo
+                state = 'FOLLOW'      # Reseta estado
+                turn_start_time = 0.0 # Reseta timer de giro
+            
             # --- FIM MUDANÇA ---
             
             conf = 0  # default p/ HUD
@@ -330,14 +324,36 @@ def main():
             # ----------------- CONTROLE -----------------
             if current_mode == MODO_AUTO:
                 
-                # --- MUDANÇA: Se há obstáculo, para tudo ---
-                if state == MODO_OBSTACLE:
-                    v_esq, v_dir = 0, 0
-                    erro, conf = 0, 0 # Zera erro e conf p/ HUD
+                # --- MUDANÇA: Máquina de Estados (AUTO) ---
+
+                # Se NÃO estamos girando, verificamos se há um novo obstáculo
+                if state != MODO_OBSTACLE_TURN and resposta_arduino == "OB":
+                    print("OBSTACULO DETECTADO! Iniciando giro 180...")
+                    state = MODO_OBSTACLE_TURN
+                    turn_start_time = time.time() # Inicia o timer
+                    last_err = 0 # Zera último erro para o próximo LOST
+                    
                 
-                # Se não há obstáculo, segue a lógica normal
+                if state == MODO_OBSTACLE_TURN:
+                    # --- ESTADO 1: GIRANDO 180 ---
+                    now = time.time()
+                    if (now - turn_start_time) < TURN_180_DURATION:
+                        # Ainda girando...
+                        # Gira para a direita (v_esq positivo, v_dir negativo)
+                        v_esq = TURN_180_SPEED
+                        v_dir = -TURN_180_SPEED
+                        erro, conf = 0, 0 # Zera para HUD
+                    else:
+                        # Giro completo!
+                        print("Giro completo. Procurando linha...")
+                        v_esq, v_dir = 0, 0
+                        state = 'LOST' # Entra em modo LOST para achar a linha
+                        turn_start_time = 0.0 # Reseta timer
+                        lost_frames = 0 # Força re-busca
+                
                 else:
-                # --- FIM MUDANÇA ---
+                    # --- ESTADOS 2 (FOLLOW) e 3 (LOST) ---
+                    # (Processa imagem APENAS se não estiver girando)
                     image, erro, conf = processar_imagem(image)
 
                     if conf == 1:
@@ -345,13 +361,12 @@ def main():
                         state = 'FOLLOW'
                         lost_frames = 0
                         last_err = erro
-
-                        # Agendamento de velocidade
+                        
                         speed_scale = max(0.35, 1.0 - abs(erro) / float(E_MAX_PIX))
                         base_speed = int(np.clip(VELOCIDADE_BASE * speed_scale, V_MIN, VELOCIDADE_MAX))
                         v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
                     else:
-                        # Sem detecção
+                        # Sem detecção:
                         lost_frames += 1
                         if lost_frames >= LOST_MAX_FRAMES:
                             state = 'LOST'
@@ -364,21 +379,21 @@ def main():
                             # Tolerância
                             base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                             v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
+                # --- FIM MUDANÇA ---
+            
             else:
                 # Modo manual
-                # (O Arduino ainda vai parar o robô se detectar obstáculo)
                 if key == 'w':   v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
                 elif key == 's': v_esq, v_dir = -VELOCIDADE_BASE, -VELOCIDADE_BASE
                 elif key == 'a': v_esq, v_dir = -VELOCIDADE_CURVA, VELOCIDADE_CURVA
                 elif key == 'd': v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
                 elif key != '':  v_esq, v_dir = 0, 0
 
-            # --- MUDANÇA: Envia o comando E LÊ A RESPOSTA ---
+            # Envia o comando E LÊ A RESPOSTA
             # A resposta lida aqui será usada no *início* do próximo ciclo do loop
             resposta_serial = enviar_comando_motor_serial(arduino, v_esq, v_dir)
             if resposta_serial in ["OK", "OB"]:
                 resposta_arduino = resposta_serial
-            # --- FIM MUDANÇA ---
 
             # ---------------- VISUALIZAÇÃO ----------------
             display_frame = image.copy()
@@ -407,11 +422,14 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
             
             # --- MUDANÇA: Atualiza HUD com novo estado ---
-            hud_color = (0, 200, 255) # Cor padrão
-            if state == MODO_OBSTACLE:
+            hud_color = (0, 200, 255) # Cor padrão (Amarelo)
+            if state == MODO_OBSTACLE_TURN:
                 hud_color = (0, 0, 255) # Vermelho para Obstáculo
             elif state == 'LOST':
                 hud_color = (0, 165, 255) # Laranja para Lost
+            elif state == 'FOLLOW':
+                hud_color = (0, 255, 0) # Verde para Follow
+                
             cv2.putText(display_frame, f"State: {state}", (10, 85),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, hud_color, 2)
             # --- FIM MUDANÇA ---
