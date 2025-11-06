@@ -24,8 +24,8 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 130
-VELOCIDADE_CURVA = 130
+VELOCIDADE_BASE = 120
+VELOCIDADE_CURVA = 120
 Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
@@ -45,7 +45,7 @@ BAUDRATE = 115200
 
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
-START_SPEED  = 120        # reta cega
+START_SPEED  = 130        # reta cega
 TURN_SPEED   = 190        # giros 90/180 (mais rápidos)
 
 # PIVÔ e aquisição pós-pivô
@@ -54,7 +54,7 @@ PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
 PIVOT_TIMEOUT   = 1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
 ALIGN_BASE      = 100      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
-ALIGN_CAP       = 120     # cap de segurança na fase de alinhamento [reduzido]
+ALIGN_CAP       = 135     # cap de segurança na fase de alinhamento [reduzido]
 ALIGN_TOL_PIX   = 8       # centralização final
 ALIGN_STABLE    = 2       # frames estáveis [reduzido para entrar em FOLLOW mais rápido]
 ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativamente]
@@ -62,8 +62,8 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
-CRAWL_SPEED = 90             # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.15      # Duração (segundos) do "anda mais um pouco" - ajustada
+CRAWL_SPEED = 95             # Velocidade baixa para o "anda mais um pouco"
+CRAWL_DURATION_S = 0.12      # Duração (segundos) do "anda mais um pouco" - ajustada
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - aumentado para giros mais precisos
 TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ajustado para 0.75s
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
@@ -74,6 +74,8 @@ BORDER_Y_TARGET_STOP_FRAC = 0.88    # Alvo um pouco acima do limite inferior (bo
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
 INTERSECTION_MEMORY_GROW_FRAC_PER_S = 1.10  # Fração de altura que projetamos por segundo quando só temos memória
 APPROACH_TIMEOUT_S = 2.5            # Tempo máximo preso em APPROACHING antes de forçar parada
+APPROACH_FLOOR_SPEED = 105          # Velocidade mínima desejada durante aproximação com linha
+APPROACH_LOST_SPEED = 115           # Velocidade usada ao aproximar sem confiança na linha
 
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
@@ -267,6 +269,21 @@ def drive_cap(arduino, v_esq, v_dir, cap=255):
     v_esq=int(np.clip(v_esq, -cap, cap))
     v_dir=int(np.clip(v_dir, -cap, cap))
     enviar_comando_motor_serial(arduino, v_esq, v_dir)
+
+def celebrate_delivery(arduino, duration=3.0, wiggle_speed=130, pause=0.3):
+    """Executa uma breve 'dancinha' sem deslocar o robô para sinalizar entrega."""
+    print("🎉 Iniciando celebração no ponto de entrega...")
+    t_end = time.time() + duration
+    toggle = True
+    while time.time() < t_end:
+        if toggle:
+            drive_cap(arduino, wiggle_speed, -wiggle_speed)
+        else:
+            drive_cap(arduino, -wiggle_speed, wiggle_speed)
+        toggle = not toggle
+        time.sleep(pause)
+    drive_cap(arduino, 0, 0); time.sleep(0.2)
+    print("🎉 Celebração concluída.")
 
 # ====================== Início cego / Pivô (2 fases) / Intersec ======================
 def straight_until_seen_then_lost(arduino, camera):
@@ -686,19 +703,16 @@ def go_to_next_intersection(arduino, camera):
 
             elif state == 'APPROACHING':
                 if conf == 0:
-                    # Continua reto em velocidade reduzida
-                    base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
-                    base_speed = max(base_speed, CRAWL_SPEED)
+                    base_speed = max(APPROACH_LOST_SPEED, APPROACH_FLOOR_SPEED)
                     v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
                 else:
-                    # Frenagem gradual baseada em last_known_y
                     progress = 0.0
-                    if (Y_TARGET_STOP - Y_START_SLOWING) > 0:
-                        progress = (last_known_y - Y_START_SLOWING) / (Y_TARGET_STOP - Y_START_SLOWING)
-
-                    speed_factor = 1.0 - np.clip(progress, 0.0, 1.0)
-                    current_base_speed = (VELOCIDADE_BASE - CRAWL_SPEED) * speed_factor + CRAWL_SPEED
-                    base_speed = int(np.clip(current_base_speed, CRAWL_SPEED, VELOCIDADE_MAX))
+                    denom = (Y_TARGET_STOP - Y_START_SLOWING)
+                    if denom > 1e-6:
+                        progress = (last_known_y - Y_START_SLOWING) / denom
+                    progress = float(np.clip(progress, 0.0, 1.0))
+                    target_speed = VELOCIDADE_BASE - (VELOCIDADE_BASE - APPROACH_FLOOR_SPEED) * progress
+                    base_speed = int(np.clip(target_speed, APPROACH_FLOOR_SPEED, VELOCIDADE_MAX))
                     v_esq, v_dir = calcular_velocidades_auto(erro, base_speed)
 
             elif state == 'STOPPING':
@@ -1227,6 +1241,7 @@ def main():
             return
         print("✅ Entrega realizada com sucesso!")
         send_basic_frame(camera, "Entrega realizada!")
+        celebrate_delivery(arduino)
 
         if not args.no_return:
             print("🔄 CALCULANDO CAMINHO DE RETORNO...")
