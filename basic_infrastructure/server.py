@@ -3,7 +3,7 @@ import zmq
 import sys
 
 # ---> MUDE AQUI PARA O IP DO COMPUTADOR QUE RODA ESTE SERVIDOR <---
-server_ip = "192.168.137.165" 
+server_ip = "192.168.137.22" 
 
 verbose_mode = True
 nodes = list()
