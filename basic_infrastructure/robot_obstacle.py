@@ -1,4 +1,4 @@
-# robot2.py — seguidor de linha com giro 180 em obstáculo
+# robot2.py — seguidor de linha com giro 180 (NÃO-BLOQUEANTE)
 
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -31,33 +31,33 @@ PAR_TOL_DEG         = 8
 # --- CONTROLE (P puro; sem derivativo ainda) ---
 VELOCIDADE_BASE = 150
 VELOCIDADE_CURVA = 100
-Kp = 0.75
+
+# --- AJUSTES DE ESTABILIDADE ---
+Kp = 0.70 # Reduzido de 0.75 para um seguimento menos agressivo
 VELOCIDADE_MAX = 255
 MODO_AUTO   = "AUTOMATICO"
 MODO_MANUAL = "MANUAL"
 
-# --- MUDANÇA: Novos estados e parâmetros de giro ---
 MODO_OBSTACLE_TURN = "TURNING_180"
 
+# --- AJUSTES DO GIRO ---
 # !! CALIBRAR ESTE VALOR !!
-# DURAÇÃO (em segundos) PARA O GIRO DE 180 GRAUS.
-# Aumente ou diminua conforme necessário.
-TURN_180_DURATION = 1.5 
-TURN_180_SPEED = VELOCIDADE_CURVA # Velocidade usada para girar
-# --- FIM MUDANÇA ---
+TURN_180_DURATION = 1.3 # Reduzido de 1.5s
+TURN_180_SPEED = 90     # Reduzido de 100 (VELOCIDADE_CURVA)
+# --- FIM AJUSTES ---
 
 # Ajustes (detecção/recuperação)
-E_MAX_PIX       = IMG_WIDTH // 2        # erro máximo usado para escalonar velocidade
-V_MIN           = 0                     # velocidade mínima admitida no AUTO
-SEARCH_SPEED    = 120                   # velocidade para girar no lugar em LOST
-LOST_MAX_FRAMES = 5                     # frames sem confiança até entrar em LOST
-DEAD_BAND       = 6                     # |erro| <= DEAD_BAND => erro = 0
-ROI_BOTTOM_FRAC = 0.55                  # início da ROI inferior (55% da altura)
-MIN_AREA_FRAC   = 0.004                 # área mínima do contorno na ROI (fração)
-MAX_AREA_FRAC   = 0.25                  # área máxima aceitável (descarta “piso inteiro”)
-ASPECT_MIN      = 2.0                   # formato “faixa”: comprimento/largura mínimo
-LINE_POLARITY   = 'auto'                # 'white', 'black' ou 'auto'
-USE_ADAPTIVE    = False                 # threshold adaptativo desligado por padrão
+E_MAX_PIX       = IMG_WIDTH // 2
+V_MIN           = 0
+SEARCH_SPEED    = 120
+LOST_MAX_FRAMES = 5
+DEAD_BAND       = 6
+ROI_BOTTOM_FRAC = 0.55
+MIN_AREA_FRAC   = 0.004
+MAX_AREA_FRAC   = 0.25
+ASPECT_MIN      = 2.0
+LINE_POLARITY   = 'auto'
+USE_ADAPTIVE    = False
 
 # --- SERIAL ---
 PORTA_SERIAL = '/dev/ttyACM0'
@@ -226,17 +226,42 @@ def calcular_velocidades_auto(erro, base_speed):
     v_dir = int(np.clip(v_dir, 15, VELOCIDADE_MAX))
     return v_esq, v_dir
 
-# (Função enviar_comando_motor_serial... sem alterações)
+# --- MUDANÇA: Lógica Não-Bloqueante ---
+# Esta variável global guardará o último estado reportado pelo Arduino
+# Acessada por 'enviar_comando_motor_serial' e 'main'
+resposta_arduino_global = "OK"
+
 def enviar_comando_motor_serial(arduino, v_esq, v_dir):
+    global resposta_arduino_global
+    
+    # 1. Envia o comando do motor (não bloqueante)
     comando = f"C {v_dir} {v_esq}\n"
     arduino.write(comando.encode('utf-8'))
+    
+    # 2. Verifica se há dados na fila para ler (não bloqueante)
     try:
-        resposta = arduino.readline().decode('utf-8').strip()
-        return resposta
+        if arduino.in_waiting > 0:
+            # 3. Se houver, lê a resposta (ex: "OK" ou "OB")
+            resposta = arduino.readline().decode('utf-8').strip()
+            
+            # 4. Atualiza o estado global apenas se for uma resposta válida
+            if resposta in ["OK", "OB"]:
+                resposta_arduino_global = resposta
+            
+            # Opcional: Esvazia o buffer de entrada caso algo
+            #           estranho tenha se acumulado
+            arduino.reset_input_buffer()
+            
     except Exception as e:
-        return ""
+        # Ignora erros de serial (ex: desconexão)
+        pass 
+# --- FIM MUDANÇA ---
+
+
 # ================================= MAIN =====================================
 def main():
+    global resposta_arduino_global # Permite que a função de envio altere esta variável
+    
     # --- ZMQ ---
     context = zmq.Context()
     pub_socket = context.socket(zmq.PUB)
@@ -255,14 +280,17 @@ def main():
     time.sleep(0.1)
 
     # --- Arduino ---
-    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
+    # --- MUDANÇA: Timeout de 0.1s. Não precisamos mais de 1s. ---
+    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.1); time.sleep(2)
     try:
-        arduino.write(b'A10')
+        # --- MUDANÇA: CORREÇÃO DE BUG (Adiciona \n) ---
+        arduino.write(b'A10') 
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
         
         # Ativa a task4 (detecção de obstáculo)
-        arduino.write(b'I1')
+        arduino.write(b'I1') 
         print(f"Protecao: {arduino.readline().decode('utf-8').strip()}")
+        # --- FIM MUDANÇA ---
         
     except Exception as e:
         print(f"Erro inicial Arduino: {e}")
@@ -272,12 +300,11 @@ def main():
     last_err = 0.0
     lost_frames = 0
     state = 'FOLLOW'
-    resposta_arduino = "OK" 
+    # resposta_arduino = "OK" # <--- Não é mais necessário, usamos a global
     
-    # --- MUDANÇA: Timer para o giro ---
+    # Timer para o giro
     turn_start_time = 0.0
-    # --- FIM MUDANÇA ---
-
+    
     current_mode = MODO_AUTO
     v_esq, v_dir = 0, 0
     print("Robo iniciado. Pressione 'm' para trocar de modo.")
@@ -306,9 +333,7 @@ def main():
             
             key = last_key
             
-            # --- MUDANÇA: Lógica de estado principal (com giro 180) ---
-            
-            # 1. Lógica de toggle manual (tem prioridade)
+            # Lógica de toggle manual (tem prioridade)
             toggled = (key == 'm' and prev_key != 'm'); prev_key = key
             if toggled:
                 current_mode = MODO_MANUAL if current_mode == MODO_AUTO else MODO_AUTO
@@ -317,17 +342,15 @@ def main():
                 state = 'FOLLOW'      # Reseta estado
                 turn_start_time = 0.0 # Reseta timer de giro
             
-            # --- FIM MUDANÇA ---
-            
             conf = 0  # default p/ HUD
 
             # ----------------- CONTROLE -----------------
             if current_mode == MODO_AUTO:
                 
-                # --- MUDANÇA: Máquina de Estados (AUTO) ---
-
+                # --- MUDANÇA: Lógica de estado agora lê a variável GLOBAL ---
+                
                 # Se NÃO estamos girando, verificamos se há um novo obstáculo
-                if state != MODO_OBSTACLE_TURN and resposta_arduino == "OB":
+                if state != MODO_OBSTACLE_TURN and resposta_arduino_global == "OB":
                     print("OBSTACULO DETECTADO! Iniciando giro 180...")
                     state = MODO_OBSTACLE_TURN
                     turn_start_time = time.time() # Inicia o timer
@@ -339,7 +362,6 @@ def main():
                     now = time.time()
                     if (now - turn_start_time) < TURN_180_DURATION:
                         # Ainda girando...
-                        # Gira para a direita (v_esq positivo, v_dir negativo)
                         v_esq = TURN_180_SPEED
                         v_dir = -TURN_180_SPEED
                         erro, conf = 0, 0 # Zera para HUD
@@ -353,7 +375,6 @@ def main():
                 
                 else:
                     # --- ESTADOS 2 (FOLLOW) e 3 (LOST) ---
-                    # (Processa imagem APENAS se não estiver girando)
                     image, erro, conf = processar_imagem(image)
 
                     if conf == 1:
@@ -379,7 +400,6 @@ def main():
                             # Tolerância
                             base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                             v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
-                # --- FIM MUDANÇA ---
             
             else:
                 # Modo manual
@@ -389,11 +409,12 @@ def main():
                 elif key == 'd': v_esq, v_dir = VELOCIDADE_CURVA, -VELOCIDADE_CURVA
                 elif key != '':  v_esq, v_dir = 0, 0
 
-            # Envia o comando E LÊ A RESPOSTA
-            # A resposta lida aqui será usada no *início* do próximo ciclo do loop
-            resposta_serial = enviar_comando_motor_serial(arduino, v_esq, v_dir)
-            if resposta_serial in ["OK", "OB"]:
-                resposta_arduino = resposta_serial
+            # --- MUDANÇA: A chamada de envio agora é NÃO-BLOQUEANTE ---
+            # Ela envia o comando E atualiza 'resposta_arduino_global'
+            # se algo for lido do buffer.
+            enviar_comando_motor_serial(arduino, v_esq, v_dir)
+            # --- FIM MUDANÇA ---
+
 
             # ---------------- VISUALIZAÇÃO ----------------
             display_frame = image.copy()
@@ -421,18 +442,16 @@ def main():
             cv2.putText(display_frame, f"V_E:{v_esq} V_D:{v_dir}", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
             
-            # --- MUDANÇA: Atualiza HUD com novo estado ---
-            hud_color = (0, 200, 255) # Cor padrão (Amarelo)
+            hud_color = (0, 200, 255) 
             if state == MODO_OBSTACLE_TURN:
-                hud_color = (0, 0, 255) # Vermelho para Obstáculo
+                hud_color = (0, 0, 255)
             elif state == 'LOST':
-                hud_color = (0, 165, 255) # Laranja para Lost
+                hud_color = (0, 165, 255)
             elif state == 'FOLLOW':
-                hud_color = (0, 255, 0) # Verde para Follow
+                hud_color = (0, 255, 0) 
                 
             cv2.putText(display_frame, f"State: {state}", (10, 85),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, hud_color, 2)
-            # --- FIM MUDANÇA ---
             
             cv2.putText(display_frame, f"Lines: {len(detected_lines)}", (10, 105),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 0), 1)
@@ -449,7 +468,8 @@ def main():
         print("Encerrando...")
         try:
             enviar_comando_motor_serial(arduino, 0, 0)
-            arduino.write(b'a'); arduino.close()
+            # --- MUDANÇA: CORREÇÃO DE BUG (Adiciona \n) ---
+            arduino.write(b'a'); arduino.close() 
         except Exception:
             pass
         try:
