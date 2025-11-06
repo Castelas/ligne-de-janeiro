@@ -24,7 +24,7 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-speed = 1  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+speed = 1.0  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
 
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
@@ -99,7 +99,7 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
-Y_TARGET_STOP_FRAC = 0.94    # Para um pouco antes do limite inferior
+Y_TARGET_STOP_FRAC = 0.92    # Para um pouco antes do limite inferior
 CRAWL_SPEED = _scale_speed(BASE_CRAWL_SPEED, min_value=70, max_value=VELOCIDADE_MAX)
 speed_multiplier_for_time = max(speed_multiplier, 0.7)
 CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
@@ -110,9 +110,11 @@ STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
 BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseções somem antes)
-BORDER_Y_TARGET_STOP_FRAC = 0.84    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
+BORDER_Y_TARGET_STOP_FRAC = 0.80    # Alvo mais alto: bordas somem bem antes do limite inferior
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
 INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.95  # Fração de altura projetada por segundo quando só temos memória
+INTERSECTION_MEMORY_EXTRA_FRAC = 0.06        # Limite adicional (em fração da altura) acima do último Y real
+BORDER_INTERSECTION_MEMORY_EXTRA_FRAC = 0.045  # Limite extra menor nas bordas
 INTERSECTION_DESCENT_MIN_FRAMES = 5          # Nº mínimo de frames vendo a intersecção descer
 INTERSECTION_DESCENT_TOL_PX = 6             # Tolerância para pequenas oscilações de Y
 INTERSECTION_DESCENT_MIN_DELTA_FRAC = 0.08   # Descida mínima (em fração da altura) para confiar na memória longa
@@ -622,6 +624,14 @@ def go_to_next_intersection(arduino, camera):
             if memory_valid:
                 dt = now - last_intersection_time
                 projected_y = last_intersection_y + INTERSECTION_MEMORY_GROW_FRAC_PER_S * dt * h
+                if intersection_last_live_y >= 0:
+                    extra_cap_frac = (
+                        BORDER_INTERSECTION_MEMORY_EXTRA_FRAC
+                        if last_intersection_is_border
+                        else INTERSECTION_MEMORY_EXTRA_FRAC
+                    )
+                    max_projected_y = intersection_last_live_y + extra_cap_frac * h
+                    projected_y = min(projected_y, max_projected_y)
                 projected_y = min(projected_y, float(h - 1))
 
                 last_intersection_y = projected_y
