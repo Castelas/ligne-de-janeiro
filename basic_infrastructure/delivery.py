@@ -6,6 +6,7 @@
 #  • Mantém todas as rotinas de visão/controle idênticas ao robot2.py.
 from picamera.array import PiRGBArray
 from picamera import PiCamera
+from picamera.exc import PiCameraValueError
 import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # --- CONFIGURAÇÃO CONTROLE REMOTO ---
@@ -571,8 +572,16 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
     last_stop_candidate_is_border = bool(planned_border)
     current_stop_is_border = bool(planned_border)
 
+    capture_iter = camera.capture_continuous(raw, format="bgr", use_video_port=True)
     try:
-        for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
+        while True:
+            try:
+                f = next(capture_iter)
+            except PiCameraValueError as exc:
+                print(f"   ⚠️  Buffer de câmera inconsistente ({exc}). Reinicializando frame...")
+                raw.truncate(0)
+                raw.seek(0)
+                continue
             img = f.array
             mask = build_binary_mask(img)
             img, erro, conf = processar_imagem(img)
@@ -968,6 +977,10 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
                 return False
 
     finally:
+        try:
+            capture_iter.close()
+        except Exception:
+            pass
         raw.truncate(0)
 
 # ====================== Planejamento e Execução ======================

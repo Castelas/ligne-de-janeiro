@@ -969,12 +969,9 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
             elif state == 'STOPPING': state_color = (255, 0, 255)  # Magenta
             elif state == 'STOPPED': state_color = (255, 0, 0)  # Azul
 
-            approaching_border = (
-                current_stop_is_border
-                or (planned_border is True)
-                or (planned_border is None and is_border_intersection)
+            hud_state = (
+                "APPROACHING B." if (state == 'APPROACHING' and is_border_intersection) else state
             )
-            hud_state = "APPROACHING B." if (state == 'APPROACHING' and approaching_border) else state
 
             cv2.putText(display_frame, f"State: {hud_state}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, state_color, 2)
@@ -1312,41 +1309,6 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         if post_turn_settle_s > 0:
             print(f"   ⏸️  Aguardando {post_turn_settle_s:.1f}s para estabilizar após a meia-volta...")
             time.sleep(post_turn_settle_s)
-
-        # --- [NOVA LÓGICA DE DETECÇÃO DE OBSTÁCULO] ---
-        # Após virar, mas ANTES de avançar, checar se o caminho está livre
-        print(f"   🔎 Verificando obstáculos antes de avançar para {nxt}...")
-
-        # Chama a função que envia 'S' para o Arduino
-        distancia_cm = detect_object(arduino) 
-        
-        if distancia_cm is None:
-            # Falha na leitura do sensor
-            print(f"   ⚠️ Falha ao ler o sensor de ultrassom. Assumindo falha e parando.")
-            drive_cap(arduino, 0, 0) # Para o robô
-            send_basic_frame(camera, f"ERRO: Falha no Ultrassom em {cur_node}")
-            return cur_node, cur_dir, False # Termina a navegação com falha
-
-        # Verifica se a distância é válida (maior que 0) e abaixo do nosso limiar
-        if (distancia_cm > 0) and (distancia_cm < OBSTACLE_THRESHOLD_CM):
-            # --- ESTADO DE RECALCULO (ATUALMENTE PARADO) ---
-            print(f"   ⛔ OBSTÁCULO DETECTADO a {distancia_cm:.1f} cm (limite: {OBSTACLE_THRESHOLD_CM} cm).")
-            print(f"   🛑 Parando em {cur_node}. Aguardando recalculo de rota (não implementado).")
-            
-            # Envia um frame para o ZMQ
-            send_basic_frame(camera, f"OBSTACULO em {cur_node}! Parando.")
-            
-            # Para o robô
-            drive_cap(arduino, 0, 0)
-            
-            # Termina a navegação (rota bloqueada)
-            # Retorna 'False' para 'ok' para que o 'main' saiba que falhamos.
-            return cur_node, cur_dir, False
-        
-        # Se chegou aqui, o caminho está livre
-        print(f"   ✅ Caminho livre (Dist: {distancia_cm:.1f} cm). Seguindo para {nxt}...")
-        # --- [FIM DA NOVA LÓGICA] ---
-
 
         # Agora vai para a próxima interseção seguindo a linha
         if not go_to_next_intersection(arduino, camera, expected_node=nxt):
