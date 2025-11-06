@@ -25,7 +25,8 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-speed = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+DEFAULT_SPEED_LEVEL = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+speed = DEFAULT_SPEED_LEVEL
 
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
@@ -868,7 +869,11 @@ def go_to_next_intersection(arduino, camera):
             elif state == 'STOPPING': state_color = (255, 0, 255)  # Magenta
             elif state == 'STOPPED': state_color = (255, 0, 0)  # Azul
 
-            cv2.putText(display_frame, f"State: {state}", (10, 30),
+            hud_state = (
+                "APPROACHING B." if (state == 'APPROACHING' and is_border_intersection) else state
+            )
+
+            cv2.putText(display_frame, f"State: {hud_state}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, state_color, 2)
             cv2.putText(display_frame, f"Conf: {conf}  Lost: {lost_frames}", (10, 55),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 1)
@@ -902,10 +907,10 @@ def front_left_right_corners(sx,sy,orient):
     # Interseções acessíveis baseadas no quadrado (sx,sy)
     # Para quadrado X,Y: interseções são (X,Y), (X,Y+1), (X+1,Y), (X+1,Y+1)
     # Mas acessíveis dependem da orientação
-    if orient==0:  return ( (sx,sy),     (sx,sy+1) )     # Norte: (X,Y), (X,Y+1)
-    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y), (X+1,Y+1)
-    if orient==2:  return ( (sx+1,sy+1), (sx+1,sy) )   # Sul: (X+1,Y+1), (X+1,Y)
-    if orient==3:  return ( (sx+1,sy),   (sx,sy) )     # Oeste: (X+1,Y), (X,Y)
+    if orient==0:  return ( (sx,sy),     (sx+1,sy) )     # Norte: (X,Y)  ↶ / (X+1,Y) ↷
+    if orient==1:  return ( (sx+1,sy),   (sx+1,sy+1) )   # Leste: (X+1,Y) ↶ / (X+1,Y+1) ↷
+    if orient==2:  return ( (sx+1,sy+1), (sx,sy+1) )   # Sul: (X+1,Y+1) ↶ / (X,Y+1) ↷
+    if orient==3:  return ( (sx,sy+1),   (sx,sy) )     # Oeste: (X,Y+1) ↶ / (X,Y) ↷
     raise ValueError
 
 def get_accessible_intersections(sx, sy, orient):
@@ -1142,6 +1147,8 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
         print(f"   🛑 Parado para executar giro")
 
         # Executa a ação baseada no giro relativo (lógica do robot_pedro.py)
+        post_turn_settle_s = 0.0
+
         if rel == 'F':
             # GO_STRAIGHT: Já está virado para a direção certa, apenas atualiza direção
             print("   ➡️  Já virado para a direção certa, seguindo em frente...")
@@ -1175,8 +1182,13 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             drive_cap(arduino, 0, 0); time.sleep(0.4) # <<-- AQUI A FUNÇÃO JÁ PEDE O ULTRASSOM
             print("   ✅ Meia-volta completa")
             cur_dir = want
+            post_turn_settle_s = 1.0
 
         print(f"   ✅ Ação executada")
+
+        if post_turn_settle_s > 0:
+            print(f"   ⏸️  Aguardando {post_turn_settle_s:.1f}s para estabilizar após a meia-volta...")
+            time.sleep(post_turn_settle_s)
 
         # Agora vai para a próxima interseção seguindo a linha
         if not go_to_next_intersection(arduino, camera):
