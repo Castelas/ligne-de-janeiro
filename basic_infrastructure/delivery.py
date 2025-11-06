@@ -66,7 +66,7 @@ def _scale_speed(value, exponent=1.0, min_value=None, max_value=None):
     return int(round(scaled))
 
 VELOCIDADE_CURVA = _scale_speed(BASE_VELOCIDADE_CURVA)
-Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
+Kp = 1.0              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
