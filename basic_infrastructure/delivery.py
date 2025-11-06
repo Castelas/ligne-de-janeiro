@@ -24,7 +24,7 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-DEFAULT_SPEED_LEVEL = 1.0  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+DEFAULT_SPEED_LEVEL = 1.2  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
 speed = DEFAULT_SPEED_LEVEL
 
 BASE_VELOCIDADE_BASE = 120
@@ -41,7 +41,7 @@ BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
 BASE_BORDER_CRAWL_DURATION = 0.06
 BASE_TURN_DURATION = 0.75
-BASE_UTURN_RATIO = 1.75  # Fator sobre o tempo de giro de 90° (ajustável)
+BASE_UTURN_RATIO = 1.9  # Fator sobre o tempo de giro de 90° (ajustável)
 BASE_APPROACH_FLOOR = 100
 BASE_APPROACH_LOST = 110
 BASE_CELEBRATION_WIGGLE = 130
