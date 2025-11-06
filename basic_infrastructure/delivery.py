@@ -955,7 +955,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             # U-turn: Meia-volta (180°)
             print("   🔄 Fazendo meia-volta...")
             drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
-            time.sleep(1.3)  # U-turn ajustado para 1.1s conforme solicitado
+            time.sleep(1.8)  # MEIA VOLTA ##########################################################################
             drive_cap(arduino, 0, 0); time.sleep(0.4)
             print("   ✅ Meia-volta completa")
             cur_dir = want
