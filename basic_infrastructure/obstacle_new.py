@@ -30,7 +30,7 @@ PAR_TOL_DEG         = 8
 
 # --- CONTROLE (P puro; sem derivativo ainda) ---
 VELOCIDADE_BASE = 150
-VELOCIDADE_CURVA = 100
+VELOCIDADE_CURVA = 120
 Kp = 0.75
 VELOCIDADE_MAX = 255
 MODO_AUTO   = "AUTOMATICO"
@@ -299,7 +299,7 @@ def main():
     time.sleep(0.1)
 
     # --- Arduino ---
-    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.005); time.sleep(2)
+    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.01); time.sleep(2)
     try:
         arduino.write(b'A00')
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
