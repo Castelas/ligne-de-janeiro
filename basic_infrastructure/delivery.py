@@ -212,7 +212,7 @@ def detect_intersections(mask):
     lines = segments_to_lines_rhotheta(segments)
 
     H, W = mask.shape[:2]
-    pts = []
+    pts_hough = []
 
     if lines:
         vertical   = [l for l in lines if _angle_diff(l[1], 0.0) < _deg(15)]
@@ -225,7 +225,7 @@ def detect_intersections(mask):
                     continue
                 x, y = p
                 if 0 <= x < W and 0 <= y < H:
-                    pts.append((x, y))
+                    pts_hough.append((x, y))
     else:
         vertical = []
         horizontal = []
@@ -267,72 +267,66 @@ def detect_intersections(mask):
 
             corner_candidates.append((x_i, y_i))
 
-    if corner_candidates:
-        arm_len = max(8, int(round(min(H, W) * 0.08)))
-        arm_half_thickness = max(3, arm_len // 4)
-        center_half = max(2, arm_half_thickness - 1)
-        line_presence_thr = 0.22
+    pts_hough = _dedup_points(pts_hough, radius=22)
 
-        def _region_white_ratio(x0, x1, y0, y1):
-            x0 = max(0, x0)
-            x1 = min(W, x1)
-            y0 = max(0, y0)
-            y1 = min(H, y1)
-            if x1 <= x0 or y1 <= y0:
-                return 0.0
-            region = mask[y0:y1, x0:x1]
-            if region.size == 0:
-                return 0.0
-            return float(np.count_nonzero(region)) / float(region.size)
+    def _direction_present(region, axis="x", min_frac=0.12, min_pixels=14, min_span=3):
+        if region.size == 0:
+            return False
+        white = np.count_nonzero(region)
+        if white < min_pixels:
+            return False
+        frac = white / float(region.size)
+        if frac < min_frac:
+            return False
+        if axis == "x":
+            projection = region.sum(axis=0)
+        else:
+            projection = region.sum(axis=1)
+        span = np.count_nonzero(projection > 0)
+        return span >= min_span
 
-        filtered_corners = []
-        for x_i, y_i in corner_candidates:
-            center_ratio = _region_white_ratio(
-                x_i - center_half,
-                x_i + center_half + 1,
-                y_i - center_half,
-                y_i + center_half + 1,
-            )
-            if center_ratio < 0.35:
-                continue
+    def _looks_like_intersection(mask_img, x, y, reach=28, thickness=5):
+        y0 = max(0, y - thickness)
+        y1 = min(H, y + thickness + 1)
+        x0 = max(0, x - thickness)
+        x1 = min(W, x + thickness + 1)
 
-            left_ratio = _region_white_ratio(
-                x_i - arm_len,
-                x_i,
-                y_i - arm_half_thickness,
-                y_i + arm_half_thickness + 1,
-            )
-            right_ratio = _region_white_ratio(
-                x_i + 1,
-                x_i + 1 + arm_len,
-                y_i - arm_half_thickness,
-                y_i + arm_half_thickness + 1,
-            )
-            up_ratio = _region_white_ratio(
-                x_i - arm_half_thickness,
-                x_i + arm_half_thickness + 1,
-                y_i - arm_len,
-                y_i,
-            )
-            down_ratio = _region_white_ratio(
-                x_i - arm_half_thickness,
-                x_i + arm_half_thickness + 1,
-                y_i + 1,
-                y_i + 1 + arm_len,
-            )
+        left  = mask_img[y0:y1, max(0, x - reach):x]
+        right = mask_img[y0:y1, x + 1:min(W, x + 1 + reach)]
+        up    = mask_img[max(0, y - reach):y, x0:x1]
+        down  = mask_img[y + 1:min(H, y + 1 + reach), x0:x1]
 
-            horizontal_present = max(left_ratio, right_ratio) >= line_presence_thr
-            vertical_present = max(up_ratio, down_ratio) >= line_presence_thr
+        left_present  = _direction_present(left, axis="x")
+        right_present = _direction_present(right, axis="x")
+        up_present    = _direction_present(up, axis="y")
+        down_present  = _direction_present(down, axis="y")
 
-            if not (horizontal_present and vertical_present):
-                continue
+        horizontal_present = left_present or right_present
+        vertical_present = up_present or down_present
 
-            filtered_corners.append((x_i, y_i))
+        if not (horizontal_present and vertical_present):
+            return False
 
-        if filtered_corners:
-            pts.extend(filtered_corners)
+        return True
 
-    pts = _dedup_points(pts, radius=22)
+    dedup_radius = 22
+    fallback_pts = []
+    for cand in corner_candidates:
+        cx, cy = cand
+        if any(np.hypot(cx - hx, cy - hy) < dedup_radius for hx, hy in pts_hough):
+            continue
+        if not _looks_like_intersection(mask, cx, cy):
+            continue
+        fallback_pts.append((cx, cy))
+
+    fallback_pts = _dedup_points(fallback_pts, radius=dedup_radius)
+
+    pts = list(pts_hough)
+    for fx, fy in fallback_pts:
+        if any(np.hypot(fx - px, fy - py) < dedup_radius for px, py in pts):
+            continue
+        pts.append((fx, fy))
+
     return pts, (vertical + horizontal)
 
 def processar_imagem(imagem):

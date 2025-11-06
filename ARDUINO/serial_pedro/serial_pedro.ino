@@ -25,8 +25,7 @@
 #define ULTRASONIC_STOP_DISTANCE_CM 15  // Define a distância em cm para parada
 char feedback ;   // si non nul indique que les commandes doivent renvoyer un acquittement
 
-// gestion du multitache.
-définition de la période de chaque tache
+// gestion du multitache. définition de la période de chaque tache
 int del1 = 100;  // délai tache 1 de test d'arrivée
 int del2 = 500;
 // délai regulation moteur
