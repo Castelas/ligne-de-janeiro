@@ -31,7 +31,7 @@ PAR_TOL_DEG         = 8
 # --- CONTROLE (P puro; sem derivativo ainda) ---
 VELOCIDADE_BASE = 150
 VELOCIDADE_CURVA = 120
-Kp = 0.70
+Kp = 0.65
 VELOCIDADE_MAX = 255
 MODO_AUTO   = "AUTOMATICO"
 MODO_MANUAL = "MANUAL"
