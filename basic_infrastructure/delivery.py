@@ -38,6 +38,8 @@ BASE_TURN_SPEED = 150
 BASE_STRAIGHT_SPEED = 130
 BASE_CRAWL_SPEED = 95
 BASE_CRAWL_DURATION = 0.09
+BASE_TURN_DURATION = 0.75
+BASE_UTURN_DURATION = 1.8
 BASE_APPROACH_FLOOR = 100
 BASE_APPROACH_LOST = 110
 BASE_CELEBRATION_WIGGLE = 130
@@ -101,7 +103,9 @@ Y_TARGET_STOP_FRAC = 0.94    # Para um pouco antes do limite inferior
 CRAWL_SPEED = _scale_speed(BASE_CRAWL_SPEED, min_value=70, max_value=VELOCIDADE_MAX)
 speed_multiplier_for_time = max(speed_multiplier, 0.7)
 CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
-TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ajustado para 0.75s
+turn_speed_gain = max(TURN_SPEED / float(BASE_TURN_SPEED), 0.1)
+TURN_DURATION_S = float(np.clip(BASE_TURN_DURATION / turn_speed_gain, 0.35, 1.2))
+UTURN_DURATION_S = float(np.clip(BASE_UTURN_DURATION / turn_speed_gain, 0.8, 2.5))
 STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
@@ -1101,7 +1105,7 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None):
             # U-turn: Meia-volta (180°)
             print("   🔄 Fazendo meia-volta...")
             drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
-            time.sleep(1.8)  # MEIA VOLTA ##########################################################################
+            time.sleep(UTURN_DURATION_S)
             drive_cap(arduino, 0, 0); time.sleep(0.4)
             print("   ✅ Meia-volta completa")
             cur_dir = want
