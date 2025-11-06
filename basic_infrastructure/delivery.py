@@ -110,11 +110,11 @@ STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
 BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseções somem antes)
-BORDER_Y_TARGET_STOP_FRAC = 0.80    # Alvo mais alto: bordas somem bem antes do limite inferior
+BORDER_Y_TARGET_STOP_FRAC = 0.82    # Alvo mais alto: bordas somem bem antes do limite inferior
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
 INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.95  # Fração de altura projetada por segundo quando só temos memória
-INTERSECTION_MEMORY_EXTRA_FRAC = 0.06        # Limite adicional (em fração da altura) acima do último Y real
-BORDER_INTERSECTION_MEMORY_EXTRA_FRAC = 0.045  # Limite extra menor nas bordas
+INTERSECTION_MEMORY_EXTRA_FRAC = 0.045        # Limite adicional (em fração da altura) acima do último Y real
+BORDER_INTERSECTION_MEMORY_EXTRA_FRAC = 0.032  # Limite extra menor nas bordas
 INTERSECTION_DESCENT_MIN_FRAMES = 5          # Nº mínimo de frames vendo a intersecção descer
 INTERSECTION_DESCENT_TOL_PX = 6             # Tolerância para pequenas oscilações de Y
 INTERSECTION_DESCENT_MIN_DELTA_FRAC = 0.08   # Descida mínima (em fração da altura) para confiar na memória longa
