@@ -253,13 +253,13 @@ def calcular_velocidades_auto(erro, base_speed):
 
 def enviar_comando_motor_serial(arduino, v_esq, v_dir):
     # Envia velocidades com sinal; negativos significam ré
-    comando = f"C {v_dir} {v_esq}"
+    comando = f"C {v_dir} {v_esq}\n"
     arduino.write(comando.encode('utf-8'))
 
 def ativar_protecao_obstaculos(arduino):
     """Ativa a rotina de detecção de obstáculos no Arduino."""
     try:
-        arduino.write(b'I1')
+        arduino.write(b'I1\n')
         # print(f"Arduino ACK Proteção: {arduino.readline().decode('utf-8').strip()}")
     except Exception as e:
         print(f"Erro ao ativar proteção de obstáculos: {e}")
@@ -267,7 +267,7 @@ def ativar_protecao_obstaculos(arduino):
 def consultar_distancia_ultrassom(arduino):
     """Envia o comando 'S' e retorna a distância em cm, ou None em caso de erro."""
     try:
-        arduino.write(b'S')
+        arduino.write(b'S\n')
         resposta = arduino.readline().decode('utf-8').strip()
         if resposta:
             return int(resposta)
@@ -301,7 +301,7 @@ def main():
     # --- Arduino ---
     arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
     try:
-        arduino.write(b'A00')
+        arduino.write(b'A00\n')
         print(f"Arduino: {arduino.readline().decode('utf-8').strip()}")
         ativar_protecao_obstaculos(arduino)
     except Exception as e:
@@ -400,6 +400,7 @@ def main():
                     elif state == ESTADO_PERDIDO :               
                         if conf == 1:
                             state = ESTADO_SEGUINDO
+                            lost_frames = 0
                         else:
                             turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                             v_esq, v_dir = int(turn), int(-turn)
