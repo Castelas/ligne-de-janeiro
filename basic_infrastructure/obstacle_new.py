@@ -363,7 +363,7 @@ def main():
                         distancia_obstaculo = dist
                         
                 # 2. Definir o estado com base nas prioridades
-                if distancia_obstaculo < DISTANCIA_PARADA_CM:
+                if (distancia_obstaculo > 0 & distancia_obstaculo < DISTANCIA_PARADA_CM):
                     if state != ESTADO_OBSTACULO:
                         print(f"OBSTÁCULO DETECTADO a {distancia_obstaculo} cm! Parando.")
                         state = ESTADO_OBSTACULO
