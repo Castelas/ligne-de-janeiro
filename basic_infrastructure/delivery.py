@@ -62,16 +62,17 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 1.0     # Aumentado para 100% - passa completamente pela interseção
-CRAWL_SPEED = 110            # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.2       # Duração (segundos) do "anda mais um pouco" - aumentado
+CRAWL_SPEED = 90             # Velocidade baixa para o "anda mais um pouco"
+CRAWL_DURATION_S = 0.15      # Duração (segundos) do "anda mais um pouco" - ajustada
 TURN_SPEED = 150             # Velocidade para girar (90 graus) - aumentado para giros mais precisos
 TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ajustado para 0.75s
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
-BORDER_Y_START_SLOWING_FRAC = 0.50  # ROI mais alta para interseções de borda
-BORDER_Y_TARGET_STOP_FRAC = 0.92    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
-INTERSECTION_MEMORY_S = 0.35        # Tempo em segundos para manter interseção viva após sumir
+BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseções somem antes)
+BORDER_Y_TARGET_STOP_FRAC = 0.88    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
+INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
+INTERSECTION_MEMORY_GROW_FRAC_PER_S = 1.10  # Fração de altura que projetamos por segundo quando só temos memória
 
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
@@ -488,9 +489,11 @@ def go_to_next_intersection(arduino, camera):
             border_margin_px = int(w * BORDER_MARGIN_FRAC)
 
             intersections, detected_lines = detect_intersections(mask)
+            intersections = list(intersections)  # garante que podemos ordenar/estender
             target_intersection = None
             target_y = -1.0
             is_border_intersection = False
+            intersection_from_memory = False
 
             if intersections:
                 filtered_intersections = [
@@ -500,38 +503,56 @@ def go_to_next_intersection(arduino, camera):
 
                 if filtered_intersections:
                     filtered_intersections.sort(key=lambda p: p[1], reverse=True)
-                    target_intersection = filtered_intersections[0]
-                    target_y = float(target_intersection[1])
-                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y:.0f}) - FILTRADA")
+                    raw_target = filtered_intersections[0]
+                    source_label = "FILTRADA"
                 else:
                     center_x = w // 2
                     intersections.sort(key=lambda p: (abs(p[0] - center_x), -p[1]))
-                    target_intersection = intersections[0]
-                    target_y = float(target_intersection[1])
-                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y:.0f}) - FALLBACK")
+                    raw_target = intersections[0]
+                    source_label = "FALLBACK"
 
+                target_intersection = (int(raw_target[0]), int(raw_target[1]))
+                target_y = float(target_intersection[1])
+                print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y:.0f}) - {source_label}")
                 is_border_intersection = (
                     target_intersection[0] <= border_margin_px or
                     target_intersection[0] >= w - border_margin_px
                 )
 
+            memory_valid = (
+                target_intersection is None
+                and last_intersection_point is not None
+                and (now - last_intersection_time) <= INTERSECTION_MEMORY_S
+            )
+
+            if memory_valid:
+                dt = now - last_intersection_time
+                projected_y = last_intersection_y + INTERSECTION_MEMORY_GROW_FRAC_PER_S * dt * h
+                projected_y = min(projected_y, float(h - 1))
+
+                last_intersection_y = projected_y
+                last_intersection_time = now
+                last_intersection_point = (last_intersection_point[0], int(round(projected_y)))
+                target_intersection = last_intersection_point
+                target_y = projected_y
+                is_border_intersection = last_intersection_is_border
+                intersection_from_memory = True
+                print(f"   🔁 Interseção memorizada: {target_intersection} (border={is_border_intersection}) | proj_y={projected_y:.0f}")
+
             if target_intersection is not None:
-                last_intersection_point = (int(target_intersection[0]), int(target_intersection[1]))
+                last_intersection_point = target_intersection
                 last_intersection_y = float(target_y)
                 last_intersection_time = now
                 last_intersection_is_border = is_border_intersection
             else:
-                if (now - last_intersection_time) <= INTERSECTION_MEMORY_S and last_intersection_point is not None:
-                    target_intersection = last_intersection_point
-                    target_y = last_intersection_y
-                    is_border_intersection = last_intersection_is_border
-                    print(f"   🔁 Interseção memorizada: {target_intersection} (border={is_border_intersection})")
-                else:
-                    target_y = -1.0
-                    is_border_intersection = False
+                last_intersection_point = None
+                last_intersection_y = -1.0
+                last_intersection_is_border = False
 
             if target_intersection is not None and target_intersection not in intersections:
-                intersections = list(intersections) + [target_intersection]
+                intersections = intersections + [target_intersection]
+
+            intersection_source = "MEM" if intersection_from_memory else ("LIVE" if target_intersection is not None else "--")
 
             y_start_frac = BORDER_Y_START_SLOWING_FRAC if is_border_intersection else Y_START_SLOWING_FRAC
             y_target_frac = BORDER_Y_TARGET_STOP_FRAC if is_border_intersection else Y_TARGET_STOP_FRAC
@@ -539,7 +560,7 @@ def go_to_next_intersection(arduino, camera):
             Y_TARGET_STOP = h * y_target_frac
 
             if target_y != -1.0:
-                print(f"   🎯 Interseção Y={target_y:.0f} (border={is_border_intersection}) | alvo={Y_TARGET_STOP:.0f}")
+                print(f"   🎯 Interseção Y={target_y:.0f} [{intersection_source}] (border={is_border_intersection}) | alvo={Y_TARGET_STOP:.0f}")
                 should_approach = target_y >= Y_START_SLOWING
                 print(f"   🔍 Should approach: {should_approach} (Y >= {Y_START_SLOWING:.0f})")
             elif conf == 0:
@@ -552,7 +573,7 @@ def go_to_next_intersection(arduino, camera):
             # 1. Transições de Estado
             if state == 'FOLLOW':
                 target_dbg = f"{target_y:.0f}" if target_y != -1.0 else "None"
-                print(f"   🔄 State machine: conf={conf}, target_y={target_dbg}, Y_START_SLOWING={Y_START_SLOWING:.0f}")
+                print(f"   🔄 State machine: conf={conf}, target_y={target_dbg} [{intersection_source}], Y_START_SLOWING={Y_START_SLOWING:.0f}")
                 # Verificar se devemos aproximar (independente de conf atual)
                 if target_y != -1.0 and target_y >= Y_START_SLOWING:
                     print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
