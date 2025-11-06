@@ -68,6 +68,10 @@ TURN_SPEED = 150             # Velocidade para girar (90 graus) - aumentado para
 TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ajustado para 0.75s
 STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
+BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
+BORDER_Y_START_SLOWING_FRAC = 0.50  # ROI mais alta para interseções de borda
+BORDER_Y_TARGET_STOP_FRAC = 0.92    # Alvo um pouco acima do limite inferior (bordas somem mais cedo)
+INTERSECTION_MEMORY_S = 0.35        # Tempo em segundos para manter interseção viva após sumir
 
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
@@ -468,6 +472,10 @@ def go_to_next_intersection(arduino, camera):
     state = 'FOLLOW'
     action_start_time = 0.0
     last_known_y = -1.0  # Última posição Y válida da interseção
+    last_intersection_point = None
+    last_intersection_y = -1.0
+    last_intersection_time = 0.0
+    last_intersection_is_border = False
 
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
@@ -475,57 +483,78 @@ def go_to_next_intersection(arduino, camera):
             mask = build_binary_mask(img)
             img, erro, conf = processar_imagem(img)
 
-            # Debug: verificar se está detectando linha
-            if conf == 0:
-                print(f"   ⚠️  Linha perdida! erro={erro}, conf={conf}")
-            else:
-                print(f"   ✅ Linha OK: erro={erro:.1f}, conf={conf}")
+            h, w = img.shape[:2]
+            now = time.time()
+            border_margin_px = int(w * BORDER_MARGIN_FRAC)
 
-            # Encontrar a interseção alvo (filtrar bordas, focar no centro)
             intersections, detected_lines = detect_intersections(mask)
             target_intersection = None
-            target_y = -1
+            target_y = -1.0
+            is_border_intersection = False
 
             if intersections:
-                h, w = img.shape[:2]
-                # Filtrar interseções muito próximas das bordas (provavelmente falsas)
-                border_margin = int(w * 0.15)  # 15% das bordas
                 filtered_intersections = [
                     inter for inter in intersections
-                    if border_margin <= inter[0] <= w - border_margin
+                    if border_margin_px <= inter[0] <= w - border_margin_px
                 ]
 
                 if filtered_intersections:
-                    filtered_intersections.sort(key=lambda p: p[1], reverse=True)  # Ordena por Y decrescente
+                    filtered_intersections.sort(key=lambda p: p[1], reverse=True)
                     target_intersection = filtered_intersections[0]
-                    target_y = target_intersection[1]
-                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y}) - FILTRADA")
+                    target_y = float(target_intersection[1])
+                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y:.0f}) - FILTRADA")
                 else:
-                    # Fallback: usar interseção mais próxima do centro se nenhuma no centro
                     center_x = w // 2
-                    intersections.sort(key=lambda p: (abs(p[0] - center_x), -p[1]))  # Centro X, depois Y alto
+                    intersections.sort(key=lambda p: (abs(p[0] - center_x), -p[1]))
                     target_intersection = intersections[0]
-                    target_y = target_intersection[1]
-                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y}) - FALLBACK")
+                    target_y = float(target_intersection[1])
+                    print(f"   📍 Target intersection: {target_intersection} (x={target_intersection[0]}, y={target_y:.0f}) - FALLBACK")
 
-            h, w = img.shape[:2]
-            Y_START_SLOWING = h * Y_START_SLOWING_FRAC
-            Y_TARGET_STOP = h * Y_TARGET_STOP_FRAC
+                is_border_intersection = (
+                    target_intersection[0] <= border_margin_px or
+                    target_intersection[0] >= w - border_margin_px
+                )
 
-            # Debug: mostrar valores importantes
-            if target_y != -1:
-                print(f"   🎯 Interseção Y={target_y:.0f}, Y_TARGET_STOP={Y_TARGET_STOP:.0f}, State={state}")
-                # Verificar se deve entrar em APPROACHING
-                should_approach = target_y > Y_START_SLOWING
-                print(f"   🔍 Should approach: {should_approach} (Y > {Y_START_SLOWING:.0f})")
+            if target_intersection is not None:
+                last_intersection_point = (int(target_intersection[0]), int(target_intersection[1]))
+                last_intersection_y = float(target_y)
+                last_intersection_time = now
+                last_intersection_is_border = is_border_intersection
+            else:
+                if (now - last_intersection_time) <= INTERSECTION_MEMORY_S and last_intersection_point is not None:
+                    target_intersection = last_intersection_point
+                    target_y = last_intersection_y
+                    is_border_intersection = last_intersection_is_border
+                    print(f"   🔁 Interseção memorizada: {target_intersection} (border={is_border_intersection})")
+                else:
+                    target_y = -1.0
+                    is_border_intersection = False
+
+            if target_intersection is not None and target_intersection not in intersections:
+                intersections = list(intersections) + [target_intersection]
+
+            y_start_frac = BORDER_Y_START_SLOWING_FRAC if is_border_intersection else Y_START_SLOWING_FRAC
+            y_target_frac = BORDER_Y_TARGET_STOP_FRAC if is_border_intersection else Y_TARGET_STOP_FRAC
+            Y_START_SLOWING = h * y_start_frac
+            Y_TARGET_STOP = h * y_target_frac
+
+            if target_y != -1.0:
+                print(f"   🎯 Interseção Y={target_y:.0f} (border={is_border_intersection}) | alvo={Y_TARGET_STOP:.0f}")
+                should_approach = target_y >= Y_START_SLOWING
+                print(f"   🔍 Should approach: {should_approach} (Y >= {Y_START_SLOWING:.0f})")
+            elif conf == 0:
+                print(f"   ⚠️  Linha perdida! erro={erro}, conf={conf}")
+            else:
+                print(f"   ✅ Linha OK: erro={erro:.1f}, conf={conf}")
 
             # --- Máquina de Estados de Controle (do robot_pedro.py) ---
 
             # 1. Transições de Estado
             if state == 'FOLLOW':
-                print(f"   🔄 State machine: conf={conf}, target_y={target_y}, Y_START_SLOWING={Y_START_SLOWING:.0f}")
+                target_dbg = f"{target_y:.0f}" if target_y != -1.0 else "None"
+                print(f"   🔄 State machine: conf={conf}, target_y={target_dbg}, Y_START_SLOWING={Y_START_SLOWING:.0f}")
                 # Verificar se devemos aproximar (independente de conf atual)
-                if target_y > Y_START_SLOWING and target_y != -1:
+                if target_y != -1.0 and target_y >= Y_START_SLOWING:
                     print(f"   🎯 Interseção detectada em Y={target_y:.0f}! Iniciando aproximação (Y_START_SLOWING={Y_START_SLOWING:.0f})")
                     state = 'APPROACHING'
                     last_known_y = target_y
@@ -556,22 +585,22 @@ def go_to_next_intersection(arduino, camera):
                     lost_frames = 0
 
                     # Atualiza a posição conhecida da interseção
-                    if target_y != -1:
-                         last_known_y = target_y
+                    if target_y != -1.0:
+                        last_known_y = target_y
 
-                         # GATILHO 1: Atingimos o alvo de Y?
-                         if last_known_y >= Y_TARGET_STOP:
+                        # GATILHO 1: Atingimos o alvo de Y?
+                        if last_known_y >= Y_TARGET_STOP:
                             print("   🛑 Alvo (Y_TARGET_STOP) atingido. 'Andando mais um pouco'...")
                             state = 'STOPPING'
                             action_start_time = time.time()
-                            last_known_y = -1.0 # Reseta para a próxima
+                            last_known_y = -1.0  # Reseta para a próxima
 
                     # GATILHO 2: Interseção desapareceu completamente (backup)
-                    if target_y == -1 and last_known_y > Y_START_SLOWING:
+                    if target_y == -1.0 and last_known_y > Y_START_SLOWING:
                         print(f"   🛑 Interseção desapareceu (era Y={last_known_y:.0f}). Parando...")
                         state = 'STOPPING'
                         action_start_time = time.time()
-                        last_known_y = -1.0 # Reseta para a próxima
+                        last_known_y = -1.0  # Reseta para a próxima
 
             elif state == 'STOPPING':
                 if (time.time() - action_start_time) > CRAWL_DURATION_S:
