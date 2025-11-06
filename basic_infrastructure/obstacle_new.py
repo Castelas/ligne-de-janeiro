@@ -318,6 +318,10 @@ def main():
 
     distancia_obstaculo = 999
 
+    # NOVAS VARIÁVEIS PARA A BUSCA
+    search_start_time = 0.0
+    search_phase = 0
+
     print("Robo iniciado. Pressione 'm' para trocar de modo.")
 
     try:
@@ -394,6 +398,8 @@ def main():
                             lost_frames += 1
                             if lost_frames >= LOST_MAX_FRAMES:
                                 state = ESTADO_PERDIDO
+                                search_start_time = time.time()
+                                search_phase = 0
                             base_speed = int(np.clip(VELOCIDADE_BASE * 0.35, V_MIN, VELOCIDADE_MAX))
                             v_esq, v_dir = calcular_velocidades_auto(0, base_speed)
 
@@ -402,8 +408,33 @@ def main():
                             state = ESTADO_SEGUINDO
                             lost_frames = 0
                         else:
-                            turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
-                            v_esq, v_dir = int(turn), int(-turn)
+                            elapsed_search_time = time.time() - search_start_time
+                            
+                            # Define a direção inicial da busca
+                            turn_direction = 1 if last_err >= 0 else -1
+
+                            if search_phase == 0:
+                                # Fase 0: Gira na direção original por 1.5s
+                                v_esq, v_dir = turn_direction * SEARCH_SPEED, -turn_direction * SEARCH_SPEED
+                                if elapsed_search_time > 1.5:
+                                    search_phase = 1 # Passa para a próxima fase
+                                    search_start_time = time.time() # Reinicia o cronômetro
+
+                            elif search_phase == 1:
+                                # Fase 1: Gira na direção OPOSTA por 3.0s
+                                v_esq, v_dir = -turn_direction * SEARCH_SPEED, turn_direction * SEARCH_SPEED
+                                if elapsed_search_time > 3.0:
+                                    search_phase = 2 # Passa para a próxima fase
+                                    search_start_time = time.time() # Reinicia o cronômetro
+                            
+                            elif search_phase == 2:
+                                # Fase 2: Gira na direção original novamente por 3.0s
+                                v_esq, v_dir = turn_direction * SEARCH_SPEED, -turn_direction * SEARCH_SPEED
+                                if elapsed_search_time > 3.0:
+                                    search_phase = 0 # Volta para a fase 0, repetindo o ciclo
+                                    search_start_time = time.time()
+
+                            v_esq, v_dir = int(v_esq), int(v_dir)
 
             else: # MODO_MANUAL
                 if key == 'w':   v_esq, v_dir = VELOCIDADE_BASE, VELOCIDADE_BASE
