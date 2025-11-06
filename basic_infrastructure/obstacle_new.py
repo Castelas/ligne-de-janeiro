@@ -31,7 +31,7 @@ PAR_TOL_DEG         = 8
 # --- CONTROLE (P puro; sem derivativo ainda) ---
 VELOCIDADE_BASE = 150
 VELOCIDADE_CURVA = 120
-Kp = 0.75
+Kp = 0.70
 VELOCIDADE_MAX = 255
 MODO_AUTO   = "AUTOMATICO"
 MODO_MANUAL = "MANUAL"
@@ -59,7 +59,7 @@ ESTADO_PERDIDO   = "LOST"
 ESTADO_OBSTACULO = "OBSTACLE"
 
 # --- DETECÇÃO DE OBSTÁCULOS --- # <--- NOVO
-DISTANCIA_PARADA_CM = 15      # Deve ser igual ou um pouco maior que o valor no Arduino
+DISTANCIA_PARADA_CM = 30      # Deve ser igual ou um pouco maior que o valor no Arduino
 OBSTACLE_CHECK_INTERVAL = 0.2 # Verificar obstáculos a cada 200ms
 last_obstacle_check = 0.0
 
