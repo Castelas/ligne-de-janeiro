@@ -257,20 +257,20 @@ def enviar_comando_motor_serial(arduino, v_esq, v_dir):
     arduino.write(comando.encode('utf-8'))
     try:
         # A conexão A10 usa feedback=1, que responde "OK" ou "OB"
-        resposta = arduino.readline().decode('utf-8').strip()
-        if not resposta:
-            return "TIMEOUT" # O Arduino não respondeu
-        return resposta # Retorna "OK" ou "OB"
-    except Exception as e:
-        print(f"Erro ao ler resposta serial: {e}")
-        return "ERROR"
+        resposta = arduino.readline().decode('utf-8').strip()
+        if not resposta:
+            return "TIMEOUT" # O Arduino não respondeu
+        return resposta # Retorna "OK" ou "OB"
+    except Exception as e:
+        print(f"Erro ao ler resposta serial: {e}")
+        return "ERROR"
 
 # ====================== Utilidades ======================
 def drive_cap(arduino, v_esq, v_dir, cap=255):
     v_esq=int(np.clip(v_esq, -cap, cap))
     v_dir=int(np.clip(v_dir, -cap, cap))
     # Agora, capturamos e retornamos a resposta
-    resposta = enviar_comando_motor_serial(arduino, v_esq, v_dir)
+    resposta = enviar_comando_motor_serial(arduino, v_esq, v_dir)
     return resposta
 
 # ====================== Início cego / Pivô (2 fases) / Intersec ======================
@@ -641,7 +641,7 @@ def go_to_next_intersection(arduino, camera):
                 v_esq, v_dir = int(turn), int(-turn)
 
             # PASSO 3 (A DETECÇÃO): Enviamos o comando E lemos a resposta
-            resposta_arduino = drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
+            resposta_arduino = drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
 
             # Verificamos a resposta do Arduino
             if resposta_arduino == "OB":
@@ -1221,32 +1221,32 @@ def main():
                         start_node, cur_dir, ok = result
                         arrival_dir = cur_dir  # fallback
                     if not ok:
-                        print("❌ Falha na saída (Obstáculo?). Missão abortada.")
-                        send_basic_frame(camera, "ERRO: Falha na saida")
-                        return # Aborta a missão se não consegue sair do início
+                        print("❌ Falha na saída (Obstáculo?). Missão abortada.")
+                        send_basic_frame(camera, "ERRO: Falha na saida")
+                        return # Aborta a missão se não consegue sair do início
 
-                    print("🔄 Mudando para NAVIGATING")
-                    auto_state = "NAVIGATING"
+                    print("🔄 Mudando para NAVIGATING")
+                    auto_state = "NAVIGATING"
 
-                elif auto_state == "NAVIGATING":
-                    # Recalcular A* da interseção escolhida para o destino
-                    print(f"🔄 Recalculando A* de {start_node} para {target} (Obstáculos: {len(blocked_edges)})")
+                elif auto_state == "NAVIGATING":
+                    # Recalcular A* da interseção escolhida para o destino
+                    print(f"🔄 Recalculando A* de {start_node} para {target} (Obstáculos: {len(blocked_edges)})")
                     # Passa o mapa de obstáculos para o A*
-                    optimized_path = a_star(start_node, target, GRID_NODES, blocked_edges)
-                    if optimized_path is None:
-                        print("❌ Nenhum caminho encontrado da interseção escolhida.")
-                        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
-                        return
+                    optimized_path = a_star(start_node, target, GRID_NODES, blocked_edges)
+                    if optimized_path is None:
+                        print("❌ Nenhum caminho encontrado da interseção escolhida.")
+                        send_basic_frame(camera, "ERRO: Caminho nao encontrado!")
+                        return
 
-                    print(f"🗺️ CAMINHO OTIMIZADO: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
-                    send_basic_frame(camera, f"Navegando: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
+                    print(f"🗺️ CAMINHO OTIMIZADO: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
+                    send_basic_frame(camera, f"Navegando: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
 
                     # follow_path agora retorna o nó onde parou
-                    cur_node, cur_dir, ok = follow_path(arduino, start_node, cur_dir, optimized_path, camera, arrival_dir)
-                    if not ok:
+                    cur_node, cur_dir, ok = follow_path(arduino, start_node, cur_dir, optimized_path, camera, arrival_dir)
+                    if not ok:
                         # --- PASSO 3: MUDANÇA DE ESTADO ---
-                        print("❌ Falha na navegação (Obstáculo?). Mudando para AVOIDING.")
-                        send_basic_frame(camera, "OBSTACULO - Recalculando")
+                        print("❌ Falha na navegação (Obstáculo?). Mudando para AVOIDING.")
+                        send_basic_frame(camera, "OBSTACULO - Recalculando")
                         
                         # Tenta encontrar a aresta bloqueada
                         try:
@@ -1262,53 +1262,53 @@ def main():
 
                         # Atualiza nosso ponto de partida para o recálculo
                         start_node = cur_node 
-                        arrival_dir = cur_dir # A direção que chegamos é a que estamos agora
-                        auto_state = "AVOIDING" # Novo estado
-                    
+                        arrival_dir = cur_dir # A direção que chegamos é a que estamos agora
+                        auto_state = "AVOIDING" # Novo estado
+ 
                     else: # Navegação OK
-                        print("✅ Entrega realizada com sucesso!")
-                        send_basic_frame(camera, "Entrega realizada!")
+                        print("✅ Entrega realizada com sucesso!")
+                        send_basic_frame(camera, "Entrega realizada!")
                         start_node = target # Prepara para o retorno
-                        auto_state = "RETURNING" if not args.no_return else "DONE"
+                        auto_state = "RETURNING" if not args.no_return else "DONE"
 
                 # --- PASSO 4: O NOVO ESTADO AVOIDING ---
                 # (Adicionar este bloco entre "NAVIGATING" e "RETURNING")
-                elif auto_state == "AVOIDING":
-                    print(f"🤖 ESTADO AVOIDING: Posição atual {start_node}, Direção {dir_name(cur_dir)}")
-                    
+                elif auto_state == "AVOIDING":
+                    print(f"🤖 ESTADO AVOIDING: Posição atual {start_node}, Direção {dir_name(cur_dir)}")
+ 
                     # 1. DESLIGAR PROTEÇÃO no Arduino para poder manobrar
-                    print("    (AVOIDING) Desligando proteção Arduino (I0)...")
-                    arduino.write(b'I0\n')
-                    try: arduino.readline() # Limpa o "OK"
-                    except: pass
+                    print("    (AVOIDING) Desligando proteção Arduino (I0)...")
+                    arduino.write(b'I0\n')
+                    try: arduino.readline() # Limpa o "OK"
+                    except: pass
 
-                    # 2. EXECUTAR MANOBRA DE GIRO (Girar 180 graus)
-                    print("    (AVOIDING) Executando giro 180...")
-                    drive_cap(arduino, TURN_SPEED, -TURN_SPEED) # Gira para a direita
+                    # 2. EXECUTAR MANOBRA DE GIRO (Girar 180 graus)
+                    print("    (AVOIDING) Executando giro 180...")
+                    drive_cap(arduino, TURN_SPEED, -TURN_SPEED) # Gira para a direita
 
-                    # Usar o tempo de U-Turn do follow_path (1.3s)
-                    time.sleep(1.3) # Tempo para 180 graus
-                    drive_cap(arduino, 0, 0); time.sleep(0.3)
-                    cur_dir = (cur_dir + 2) % 4 # Atualiza a direção (oposto)
-                    print(f"    (AVOIDING) Giro completo. Nova direção: {dir_name(cur_dir)}")
+                    # Usar o tempo de U-Turn do follow_path (1.3s)
+                    time.sleep(1.3) # Tempo para 180 graus
+                    drive_cap(arduino, 0, 0); time.sleep(0.3)
+                    cur_dir = (cur_dir + 2) % 4 # Atualiza a direção (oposto)
+                    print(f"    (AVOIDING) Giro completo. Nova direção: {dir_name(cur_dir)}")
 
-                    # 3. REATIVAR PROTEÇÃO
-                    print("    (AVOIDING) Ligando proteção Arduino (I1)...")
-                    arduino.write(b'I1\n')
-                    try: arduino.readline() # Limpa o "OK"
-                    except: pass
-                    
-                    # 4. VOLTAR A NAVEGAR (vai recalcular no início do estado NAVIGATING)
-                    print("    (AVOIDING) Retomando para NAVIGATING.")
-                    auto_state = "NAVIGATING" # Volta para o estado de navegação
+                    # 3. REATIVAR PROTEÇÃO
+                    print("    (AVOIDING) Ligando proteção Arduino (I1)...")
+                    arduino.write(b'I1\n')
+                    try: arduino.readline() # Limpa o "OK"
+                    except: pass
+
+                    # 4. VOLTAR A NAVEGAR (vai recalcular no início do estado NAVIGATING)
+                    print("    (AVOIDING) Retomando para NAVIGATING.")
+                    auto_state = "NAVIGATING" # Volta para o estado de navegação
                     # 'start_node' e 'cur_dir' já estão atualizados
 
-                elif auto_state == "RETURNING":
+                elif auto_state == "RETURNING":
                     # Também precisa usar o mapa de obstáculos
-                    print(f"🔄 CALCULANDO CAMINHO DE RETORNO de {start_node} para {(sx, sy)}")
-                    send_basic_frame(camera, "Calculando retorno...")
+                    print(f"🔄 CALCULANDO CAMINHO DE RETORNO de {start_node} para {(sx, sy)}")
+                    send_basic_frame(camera, "Calculando retorno...")
 
-                    back_path = a_star(start_node, (sx, sy), GRID_NODES, blocked_edges)                    
+                    back_path = a_star(start_node, (sx, sy), GRID_NODES, blocked_edges) 
                     if back_path is None:
                         print("❌ Nenhum caminho de retorno encontrado.")
                         send_basic_frame(camera, "ERRO: Caminho retorno nao encontrado")
