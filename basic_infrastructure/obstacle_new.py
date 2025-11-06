@@ -253,7 +253,7 @@ def calcular_velocidades_auto(erro, base_speed):
 
 def enviar_comando_motor_serial(arduino, v_esq, v_dir):
     # Envia velocidades com sinal; negativos significam ré
-    comando = f"C {v_esq} {v_dir}"
+    comando = f"C {v_dir} {v_esq}"
     arduino.write(comando.encode('utf-8'))
 
 def ativar_protecao_obstaculos(arduino):
