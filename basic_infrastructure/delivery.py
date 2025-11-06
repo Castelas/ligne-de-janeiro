@@ -24,13 +24,49 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-VELOCIDADE_BASE = 120
-VELOCIDADE_CURVA = 120
+speed = 1.0  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+
+BASE_VELOCIDADE_BASE = 120
+BASE_VELOCIDADE_CURVA = 120
+BASE_SEARCH_SPEED = 110
+BASE_START_SPEED = 130
+BASE_ALIGN_BASE = 100
+BASE_ALIGN_CAP = 135
+BASE_PIVOT_MIN = 150
+BASE_PIVOT_CAP = 150
+BASE_TURN_SPEED = 150
+BASE_STRAIGHT_SPEED = 130
+BASE_CRAWL_SPEED = 95
+BASE_CRAWL_DURATION = 0.09
+BASE_APPROACH_FLOOR = 100
+BASE_APPROACH_LOST = 110
+BASE_CELEBRATION_WIGGLE = 130
+
+def _compute_base_speed(level):
+    lvl = max(level, 0.5)
+    if lvl <= 1.0:
+        # Interpola de 0.5→90 até 1.0→BASE_VELOCIDADE_BASE
+        return int(round(90 + (lvl - 0.5) * (BASE_VELOCIDADE_BASE - 90) / 0.5))
+    # Acima de 1.0 cresce com inclinação suave (80 por unidade)
+    return int(round(BASE_VELOCIDADE_BASE + (lvl - 1.0) * 80))
+
+VELOCIDADE_BASE = _compute_base_speed(speed)
+speed_multiplier = VELOCIDADE_BASE / float(BASE_VELOCIDADE_BASE)
+
+def _scale_speed(value, exponent=1.0, min_value=None, max_value=None):
+    scaled = value * (speed_multiplier ** exponent)
+    if min_value is not None:
+        scaled = max(min_value, scaled)
+    if max_value is not None:
+        scaled = min(max_value, scaled)
+    return int(round(scaled))
+
+VELOCIDADE_CURVA = _scale_speed(BASE_VELOCIDADE_CURVA)
 Kp = 1.2              # Ganho do controlador P - aumentado para melhor controle
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
-SEARCH_SPEED    = 110
+SEARCH_SPEED    = _scale_speed(BASE_SEARCH_SPEED, max_value=VELOCIDADE_MAX)
 LOST_MAX_FRAMES = 5
 DEAD_BAND       = 3
 ROI_BOTTOM_FRAC = 0.55
@@ -45,16 +81,16 @@ BAUDRATE = 115200
 
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 quadrados → 5x5 nós
-START_SPEED  = 130        # reta cega
-TURN_SPEED   = 190        # giros 90/180 (mais rápidos)
+START_SPEED  = _scale_speed(BASE_START_SPEED, max_value=VELOCIDADE_MAX)  # reta cega
+TURN_SPEED   = _scale_speed(BASE_TURN_SPEED, max_value=VELOCIDADE_MAX)   # giros 90/180 ajustados
 
 # PIVÔ e aquisição pós-pivô
-PIVOT_CAP       = 150     # limite superior do pivô - aumentado
-PIVOT_MIN       = 150     # mínimo para vencer atrito - aumentado
+PIVOT_CAP       = _scale_speed(BASE_PIVOT_CAP, max_value=VELOCIDADE_MAX)
+PIVOT_MIN       = _scale_speed(BASE_PIVOT_MIN, min_value=80)
 PIVOT_TIMEOUT   = 1   # Ligeiramente aumentado para virar um tiquinho mais
 SEEN_FRAMES     = 1       # frames consecutivos "vendo" a linha para sair do giro - reduzido
-ALIGN_BASE      = 100      # velocidade base na fase de alinhamento (P)  [aumentada para mover o carrinho]
-ALIGN_CAP       = 135     # cap de segurança na fase de alinhamento [reduzido]
+ALIGN_BASE      = _scale_speed(BASE_ALIGN_BASE, min_value=70)
+ALIGN_CAP       = _scale_speed(BASE_ALIGN_CAP, max_value=VELOCIDADE_MAX)
 ALIGN_TOL_PIX   = 8       # centralização final
 ALIGN_STABLE    = 2       # frames estáveis [reduzido para entrar em FOLLOW mais rápido]
 ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativamente]
@@ -62,11 +98,11 @@ ALIGN_TIMEOUT   = 6.0     # tempo máx. alinhando (s) [aumentado significativame
 # Intersecção (parâmetros do robot_pedro.py - mais robustos)
 Y_START_SLOWING_FRAC = 0.60  # Começa a frear quando a interseção passa de 70% da altura
 Y_TARGET_STOP_FRAC = 0.94    # Para um pouco antes do limite inferior
-CRAWL_SPEED = 90             # Velocidade baixa para o "anda mais um pouco"
-CRAWL_DURATION_S = 0.08      # Duração (segundos) do "anda mais um pouco" - ajustada
-TURN_SPEED = 150             # Velocidade para girar (90 graus) - aumentado para giros mais precisos
+CRAWL_SPEED = _scale_speed(BASE_CRAWL_SPEED, min_value=70, max_value=VELOCIDADE_MAX)
+speed_multiplier_for_time = max(speed_multiplier, 0.7)
+CRAWL_DURATION_S = BASE_CRAWL_DURATION / speed_multiplier_for_time
 TURN_DURATION_S = 0.75       # Duração (segundos) para o giro - ajustado para 0.75s
-STRAIGHT_SPEED = 130         # Velocidade para "seguir reto"
+STRAIGHT_SPEED = _scale_speed(BASE_STRAIGHT_SPEED, max_value=VELOCIDADE_MAX)
 STRAIGHT_DURATION_S = 0.5    # Duração (segundos) para atravessar
 BORDER_MARGIN_FRAC = 0.12    # Fração lateral considerada como borda do grid
 BORDER_Y_START_SLOWING_FRAC = 0.45  # ROI de borda começa mais cedo (interseções somem antes)
@@ -74,8 +110,11 @@ BORDER_Y_TARGET_STOP_FRAC = 0.84    # Alvo um pouco acima do limite inferior (bo
 INTERSECTION_MEMORY_S = 0.70        # Tempo em segundos para manter interseção viva após sumir
 INTERSECTION_MEMORY_GROW_FRAC_PER_S = 0.95  # Fração de altura projetada por segundo quando só temos memória
 APPROACH_TIMEOUT_S = 2.5            # Tempo máximo preso em APPROACHING antes de forçar parada
-APPROACH_FLOOR_SPEED = 100          # Velocidade mínima desejada durante aproximação com linha
-APPROACH_LOST_SPEED = 110           # Velocidade usada ao aproximar sem confiança na linha
+APPROACH_FLOOR_SPEED = _scale_speed(BASE_APPROACH_FLOOR, min_value=80, max_value=VELOCIDADE_MAX)
+APPROACH_LOST_SPEED = max(APPROACH_FLOOR_SPEED + 5,
+                           _scale_speed(BASE_APPROACH_LOST, min_value=APPROACH_FLOOR_SPEED + 5,
+                                        max_value=VELOCIDADE_MAX))
+CELEBRATION_WIGGLE_SPEED = _scale_speed(BASE_CELEBRATION_WIGGLE, max_value=VELOCIDADE_MAX)
 
 # Início cego (linha horizontal)
 ROW_BAND_TOP_FRAC       = 0.45
@@ -270,8 +309,10 @@ def drive_cap(arduino, v_esq, v_dir, cap=255):
     v_dir=int(np.clip(v_dir, -cap, cap))
     enviar_comando_motor_serial(arduino, v_esq, v_dir)
 
-def celebrate_delivery(arduino, duration=3.0, wiggle_speed=130, pause=0.3):
+def celebrate_delivery(arduino, duration=3.0, wiggle_speed=None, pause=0.3):
     """Executa uma breve 'dancinha' sem deslocar o robô para sinalizar entrega."""
+    if wiggle_speed is None:
+        wiggle_speed = CELEBRATION_WIGGLE_SPEED
     print("🎉 Iniciando celebração no ponto de entrega...")
     t_end = time.time() + duration
     toggle = True
