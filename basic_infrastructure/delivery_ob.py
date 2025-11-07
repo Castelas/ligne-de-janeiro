@@ -104,7 +104,7 @@ def is_border_node(node):
 # Pivot and post-pivot acquisition
 PIVOT_CAP       = _scale_speed(BASE_PIVOT_CAP, max_value=VELOCIDADE_MAX)
 PIVOT_MIN       = _scale_speed(BASE_PIVOT_MIN, min_value=80)
-PIVOT_TIMEOUT   = 2.0   # Timeout for pivot (increased for reliability)
+PIVOT_TIMEOUT   = 1   # Slightly increased to turn a bit more
 SEEN_FRAMES     = 1       # Consecutive frames "seeing" the line before exiting the turn - reduced
 ALIGN_BASE      = _scale_speed(BASE_ALIGN_BASE, min_value=70)
 ALIGN_CAP       = _scale_speed(BASE_ALIGN_CAP, max_value=VELOCIDADE_MAX)
@@ -328,22 +328,23 @@ def calcular_velocidades_auto(erro, base_speed):
     v_dir = int(np.clip(v_dir, 60, VELOCIDADE_MAX))
     return v_esq, v_dir
 
-def enviar_comando_motor_serial(arduino, v_esq, v_dir):
+def enviar_comando_motor_serial(arduino, v_esq, v_dir, check_obstacle=False):
     comando = f"C {v_dir} {v_esq}"
     arduino.write(comando.encode('utf-8'))
-    # Check for obstacle response
-    time.sleep(0.01)  # Small delay to receive response
-    if arduino.in_waiting > 0:
-        response = arduino.readline().decode('utf-8').strip()
-        if response == "OB":
-            return True  # Obstacle detected
+    # Only check for obstacle if requested (to avoid blocking during pivot/initial phases)
+    if check_obstacle:
+        time.sleep(0.01)  # Small delay to receive response
+        if arduino.in_waiting > 0:
+            response = arduino.readline().decode('utf-8').strip()
+            if response == "OB":
+                return True  # Obstacle detected
     return False  # No obstacle
 
 # ====================== Utilidades ======================
-def drive_cap(arduino, v_esq, v_dir, cap=255):
+def drive_cap(arduino, v_esq, v_dir, cap=255, check_obstacle=False):
     v_esq=int(np.clip(v_esq, -cap, cap))
     v_dir=int(np.clip(v_dir, -cap, cap))
-    obstacle_detected = enviar_comando_motor_serial(arduino, v_esq, v_dir)
+    obstacle_detected = enviar_comando_motor_serial(arduino, v_esq, v_dir, check_obstacle)
     return obstacle_detected
 
 def celebrate_delivery(arduino, duration=3.0, wiggle_speed=None, pause=0.3):
@@ -961,7 +962,7 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
                 turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
                 v_esq, v_dir = int(turn), int(-turn)
 
-            obs = drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
+            obs = drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP, check_obstacle=True)
             if obs:
                 obstacle_detected = True
                 print("!!! OBSTACLE DETECTED during navigation !!!")
