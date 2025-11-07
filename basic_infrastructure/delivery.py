@@ -11,7 +11,7 @@ import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # --- CONFIGURAÇÃO CONTROLE REMOTO ---
 SERVER_IP = "192.168.137.22"  # IP do computador que roda o server.py
-# --- FIM CONFIGURAÇÃO ---
+# --- FIM CONFIGURAÇÃO---
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
 IMG_WIDTH, IMG_HEIGHT = 320, 240
