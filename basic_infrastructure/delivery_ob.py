@@ -387,21 +387,20 @@ def handle_obstacle_uturn(arduino, camera):
         print(f"IR protection disabled: {response}")
     time.sleep(0.1)
     
-    # Phase 1: Blind rotation for 1 second to get away from the obstacle
+    # Phase 1: Blind rotation using same duration as 90-degree turn
     # This prevents the camera from recalibrating on the obstacle
-    print("   Phase 1: Blind rotation to clear obstacle...")
-    drive_cap(arduino, PIVOT_MIN, -PIVOT_MIN, cap=PIVOT_CAP)
-    time.sleep(1.0)  # Rotate blindly for 1 second
+    print(f"   Phase 1: Blind rotation for ~90 degrees ({TURN_DURATION_S}s)...")
+    drive_cap(arduino, TURN_SPEED, -TURN_SPEED, cap=VELOCIDADE_MAX)
+    time.sleep(TURN_DURATION_S)
     drive_cap(arduino, 0, 0)
     time.sleep(0.2)
     
-    # Phase 2: Continue rotating until the line is seen again
-    print("   Phase 2: Searching for line...")
+    # Phase 2: Continue rotating until the line is seen again (using pivot logic)
+    print("   Phase 2: Searching for line (pivot-like)...")
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     seen_cnt = 0
     t0 = time.time()
-    UTURN_TIMEOUT = 3.0  # Additional timeout after blind rotation
-    UTURN_SEEN_FRAMES = 2  # Need to see line for 2 frames to confirm
+    UTURN_SEEN_FRAMES = SEEN_FRAMES  # Same as normal pivot
     
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
@@ -428,11 +427,11 @@ def handle_obstacle_uturn(arduino, camera):
             if seen_cnt >= UTURN_SEEN_FRAMES:
                 print("   Line found after U-turn!")
                 drive_cap(arduino, 0, 0)
-                time.sleep(0.3)
+                time.sleep(0.2)
                 # Don't re-enable IR yet - will be done after returning to safe intersection
                 break
             
-            if (time.time() - t0) > UTURN_TIMEOUT:
+            if (time.time() - t0) > PIVOT_TIMEOUT:
                 print("   U-turn timeout - line not found!")
                 drive_cap(arduino, 0, 0)
                 # Don't re-enable IR yet - will be done after returning to safe intersection
