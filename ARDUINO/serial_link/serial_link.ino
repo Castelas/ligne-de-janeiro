@@ -39,7 +39,11 @@ bool task3on=false ;        // lancement de la tache 3 d'accélération progress
 bool task4on=false ;        // lancement de la tache 4 de détection de collision par IR
 bool task5on=false ;        // lancement de la tache 5 de rotation du servomoteur
 bool obst=false ;           // obstacle détecté
-int obst_count=0 ;          // compteur de détections consécutives d'obstacle
+
+// Buffer circulaire para filtrar ruído do sensor ultrassônico
+#define OBST_BUFFER_SIZE 3
+long obst_buffer[OBST_BUFFER_SIZE] = {100, 100, 100};  // inicializa com valores seguros
+int obst_buffer_idx = 0;  // índice atual no buffer
 
 char c,CharIn,m;
 bool ConnOn ;          // indique si la carte est connectée
@@ -632,30 +636,36 @@ inline void task4() {
   {
     long d = sr04.Distance(); // distance en cm
     
-    // Detecta obstáculo (distância < 10 cm)
-    if ((d > 0) && (d < 10)) {
-      // Incrementa contador de detecções consecutivas
-      obst_count++;
-      
-      // Só notifica após 2 detecções consecutivas (200ms total, reduz falsos positivos)
-      if (obst_count >= 2 && !obst) {
-        obst = true;
-        // parar motores imediatamente
-        nivM1 = 0; nivM2 = 0;
-        set_motor1(0);
-        set_motor2(0);
-        task3on = false;        // arret du démarrage progressif
-        Serial.println("OB");   // notifica Raspberry apenas uma vez (transição)
-      }
-    } else {
-      // Reseta contador quando não detecta obstáculo
-      obst_count = 0;
-      
-      // limpa flag quando retorna seguro (>= 10 cm) para permitir nova notificação
-      if (obst && d >= 10) {
-        obst = false;
+    // Adiciona leitura atual ao buffer circular (sempre executa, sem delay)
+    obst_buffer[obst_buffer_idx] = d;
+    obst_buffer_idx = (obst_buffer_idx + 1) % OBST_BUFFER_SIZE;
+    
+    // Calcula quantas leituras no buffer indicam obstáculo
+    int obst_count = 0;
+    for (int i = 0; i < OBST_BUFFER_SIZE; i++) {
+      if (obst_buffer[i] > 0 && obst_buffer[i] < 10) {
+        obst_count++;
       }
     }
+    
+    // Considera obstáculo se maioria das leituras indicarem (≥2 de 3)
+    bool obstacle_detected = (obst_count >= 2);
+    
+    // Transição false->true: notifica obstáculo
+    if (obstacle_detected && !obst) {
+      obst = true;
+      // parar motores imediatamente
+      nivM1 = 0; nivM2 = 0;
+      set_motor1(0);
+      set_motor2(0);
+      task3on = false;        // arret du démarrage progressif
+      Serial.println("OB");   // notifica Raspberry apenas uma vez (transição)
+    } 
+    // Transição true->false: limpa flag quando caminho seguro
+    else if (!obstacle_detected && obst) {
+      obst = false;
+    }
+    
     tim4 = tim4 + del4;
   }
 }
