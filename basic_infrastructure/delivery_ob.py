@@ -422,11 +422,21 @@ def handle_obstacle_uturn(arduino, camera):
                 print("   Line found after U-turn!")
                 drive_cap(arduino, 0, 0)
                 time.sleep(0.3)
+                
+                # Re-enable IR protection after finding the line
+                arduino.write(b'I1')
+                time.sleep(0.1)
+                print("   IR protection re-enabled")
                 break
             
             if (time.time() - t0) > UTURN_TIMEOUT:
                 print("   U-turn timeout - line not found!")
                 drive_cap(arduino, 0, 0)
+                
+                # Re-enable IR protection even on timeout
+                arduino.write(b'I1')
+                time.sleep(0.1)
+                print("   IR protection re-enabled (timeout)")
                 break
             
             raw.truncate(0)
@@ -436,11 +446,7 @@ def handle_obstacle_uturn(arduino, camera):
         drive_cap(arduino, 0, 0)
         time.sleep(0.2)
     
-    # Re-enable IR protection
-    arduino.write(b'I1')
-    time.sleep(0.1)
-    
-    print("U-turn complete, IR protection re-enabled")
+    print("U-turn complete")
 
 def add_blocked_edge(node1, node2):
     """Add a blocked edge to the global set (bidirectional)."""
