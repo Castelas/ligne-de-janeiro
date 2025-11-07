@@ -425,9 +425,9 @@ void SERVO_minmax() {
 void PROTECT_IR_code() {
   delay(1); // indispensable et pas trop long
   m=GetChar(0);
-  if (m=='0')   { task4on=false ; obst=false ;   }
-  else if (m=='1')  { Task4On() ;  obst=false ; }    
-  if (feedback==1) Serial.println("OK");
+  if (m=='0')   { task4on=false ; obst=false ;  Serial.println("INFRA OFF"); }
+  else if (m=='1')  { Task4On() ;  obst=false ; Serial.println("INFRA ON");}    
+  //if (feedback==1) 
   if (feedback==2)
   {  Serial.print("OK protection moteur : ");
       Serial.println(task4on);
@@ -454,6 +454,7 @@ void  ENCODER_DUAL_code() {
 }
 
 
+// renvoie le temps courant et la position d'un encodeur
 void  ENCODERS_TIME_code() {
   delay(1); // indispensable et pas trop long sinon le caractère suivant n'est pas arrivé
   c=GetChar(0);
@@ -628,26 +629,16 @@ inline void task3() {
 
 inline void task4() {
   if (((int)millis()-tim4)>0)  // si on a atteint le temps programmé
-  {
-    long d = sr04.Distance(); // distance en cm
-    // envia "OB" apenas na transição false->true quando distância < 10 cm
-    if ((d > 0) && (d < 10)) {
-      if (!obst) {
-        obst = true;
-        // parar motores imediatamente
-        nivM1 = 0; nivM2 = 0;
-        set_motor1(0);
-        set_motor2(0);
-        task3on = false;        // arret du démarrage progressif
-        Serial.println("OB");   // notifica Raspberry apenas uma vez (transição)
-      }
-    } else {
-      // limpa flag quando retorna seguro (>= 10 cm) para permitir nova notificação
-      if (obst && d >= 10) {
-        obst = false;
-      }
+  { 
+    if (analogRead(IR_pin)>250)     // on a détecté un obstacle (alteracao de 500 para 300)
+    {
+      obst=true ;                   // indique que l'on a détecté un obstacle
+      nivM1=0 ; nivM2=0 ;
+      set_motor1(0) ;
+      set_motor2(0) ;
+      task3on = false ;        // arret du démarrage progressif
     }
-    tim4 = tim4 + del4;
+    tim4=tim4+del4 ;
   }
 }
 
