@@ -648,9 +648,10 @@ def best_intersection_in_band(pts, h, band_y0, band_y1):
     # Prioritize intersections within the band, but accept outside when necessary
     return cand_in_band if cand_in_band is not None else cand_out_band
 
-def go_to_next_intersection(arduino, camera, expected_node=None):
+def go_to_next_intersection(arduino, camera, expected_node=None, check_obstacles=True):
     """Reach the next intersection using the robust logic from robot_pedro.py.
-    Returns (success: bool, obstacle_detected: bool)"""
+    Returns (success: bool, obstacle_detected: bool)
+    check_obstacles: if False, obstacle detection is disabled during this navigation"""
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     last_err = 0.0
     lost_frames = 0
@@ -1020,8 +1021,8 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
 
             # Use higher cap for LOST state to allow faster search
             cap_to_use = 150 if state == 'LOST' else ALIGN_CAP
-            obs = drive_cap(arduino, v_esq, v_dir, cap=cap_to_use, check_obstacle=True)
-            if obs:
+            obs = drive_cap(arduino, v_esq, v_dir, cap=cap_to_use, check_obstacle=check_obstacles)
+            if obs and check_obstacles:
                 obstacle_detected = True
                 print("!!! OBSTACLE DETECTED during navigation !!!")
                 drive_cap(arduino, 0, 0)
@@ -1436,12 +1437,15 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 
                 # After U-turn, robot is facing back but not at any intersection
                 # We need to go back to the previous intersection (cur_node)
-                # IR protection is still disabled to avoid re-detecting the obstacle
-                print(f"   Returning to previous intersection {cur_node} (IR still disabled)...")
-                back_success, back_obstacle = go_to_next_intersection(arduino, camera, expected_node=cur_node)
+                # Obstacle detection is disabled to avoid re-detecting the same obstacle
+                print(f"   Returning to previous intersection {cur_node} (obstacle detection disabled)...")
+                back_success, back_obstacle = go_to_next_intersection(arduino, camera, expected_node=cur_node, check_obstacles=False)
                 
                 if not back_success:
                     print("   ERROR: Could not return to previous intersection after obstacle!")
+                    # Re-enable IR before returning
+                    arduino.write(b'I1')
+                    time.sleep(0.1)
                     return cur_node, cur_dir, False
                 
                 print(f"   Back at intersection {cur_node}")
