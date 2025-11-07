@@ -380,21 +380,28 @@ def handle_obstacle_uturn(arduino, camera):
         print(f"IR protection disabled: {response}")
     time.sleep(0.1)
     
-    # Execute U-turn: rotate until the line is seen again
-    # Similar to pivot logic but looking for the line behind us
+    # Phase 1: Blind rotation for 1 second to get away from the obstacle
+    # This prevents the camera from recalibrating on the obstacle
+    print("   Phase 1: Blind rotation to clear obstacle...")
+    drive_cap(arduino, PIVOT_MIN, -PIVOT_MIN, cap=PIVOT_CAP)
+    time.sleep(1.0)  # Rotate blindly for 1 second
+    drive_cap(arduino, 0, 0)
+    time.sleep(0.2)
+    
+    # Phase 2: Continue rotating until the line is seen again
+    print("   Phase 2: Searching for line...")
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     seen_cnt = 0
     t0 = time.time()
-    UTURN_TIMEOUT = 4.0  # Longer timeout for U-turn (up to 180 degrees)
+    UTURN_TIMEOUT = 3.0  # Additional timeout after blind rotation
     UTURN_SEEN_FRAMES = 2  # Need to see line for 2 frames to confirm
     
-    print("   Rotating to find line...")
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
             img = f.array
             img_display, err, conf = processar_imagem(img)
             
-            # Turn in place (can choose direction, here using right turn)
+            # Turn in place (same direction as blind rotation)
             v_esq, v_dir = PIVOT_MIN, -PIVOT_MIN
             drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
             
@@ -402,7 +409,7 @@ def handle_obstacle_uturn(arduino, camera):
             mask = build_binary_mask(img_display)
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
             display_frame = cv2.addWeighted(img_display, 0.7, mask_color, 0.3, 0)
-            cv2.putText(display_frame, f"U-TURN - Conf: {conf}", (10, 30),
+            cv2.putText(display_frame, f"U-TURN Phase 2 - Conf: {conf}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             send_frame_to_stream(display_frame)
             
