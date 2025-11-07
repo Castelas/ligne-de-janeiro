@@ -403,7 +403,7 @@ def straight_until_seen_then_lost(arduino, camera):
 
     # Start with a higher speed to cover more distance
     initial_speed = int(START_SPEED * 1.15)  # 15% faster (less than before)
-    drive_cap(arduino, initial_speed, initial_speed); time.sleep(0.1)
+    _ = drive_cap(arduino, initial_speed, initial_speed); time.sleep(0.1)
 
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
@@ -426,7 +426,7 @@ def straight_until_seen_then_lost(arduino, camera):
 
             # Keep the initial speed until the line is seen
             current_speed = initial_speed if not saw else START_SPEED
-            drive_cap(arduino, current_speed, current_speed)
+            _ = drive_cap(arduino, current_speed, current_speed)  # Ignore obstacle detection during initial straight
 
             if not saw:
                 if present: saw=True; lost=0
@@ -436,10 +436,10 @@ def straight_until_seen_then_lost(arduino, camera):
                     lost+=1
                     if lost>=LOSE_FRAMES_START:
                         # After losing the line, move a little further forward
-                        drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.15)  # Reduced time
-                        drive_cap(arduino,0,0); return True
+                        _ = drive_cap(arduino, START_SPEED, START_SPEED); time.sleep(0.15)  # Reduced time
+                        _ = drive_cap(arduino,0,0); return True
             if (time.time()-t0)>START_TIMEOUT_S:
-                drive_cap(arduino,0,0); return False
+                _ = drive_cap(arduino,0,0); return False
             raw.truncate(0); raw.seek(0)
     finally:
         raw.truncate(0)
@@ -456,7 +456,7 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
             img=f.array
             img_display, err, conf = processar_imagem(img)
             v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
-            drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
+            _ = drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)  # Ignore obstacle detection during pivot
 
             # Enviar frame para o stream durante o pivot
             mask = build_binary_mask(img_display)
@@ -472,11 +472,11 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
                 seen_cnt = 0
 
             if seen_cnt >= SEEN_FRAMES:
-                drive_cap(arduino, 0, 0)
+                _ = drive_cap(arduino, 0, 0)
                 return True
 
             if (time.time()-t0) > PIVOT_TIMEOUT:
-                drive_cap(arduino,0,0); return False
+                _ = drive_cap(arduino,0,0); return False
             raw.truncate(0); raw.seek(0)
     finally:
         raw.truncate(0)
@@ -517,7 +517,7 @@ def forward_align_on_line(arduino, camera):
                     v_esq, v_dir = ALIGN_BASE, ALIGN_BASE
                     print(f"      Frame {frame_count}: No line | vel=straight (tolerance: {effective_lost_max})")
 
-            drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)
+            _ = drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP)  # Ignore obstacle detection during alignment
 
             # Create frame for visualization
             display_frame = img.copy()
@@ -555,13 +555,13 @@ def forward_align_on_line(arduino, camera):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 send_frame_to_stream(display_frame)
 
-                drive_cap(arduino, 70, 70, cap=ALIGN_CAP); time.sleep(0.10)
-                drive_cap(arduino, 0, 0); return True
+                _ = drive_cap(arduino, 70, 70, cap=ALIGN_CAP); time.sleep(0.10)
+                _ = drive_cap(arduino, 0, 0); return True
 
             elapsed = time.time()-t0
             if elapsed > ALIGN_TIMEOUT:
                 print(f"      Timeout after {elapsed:.1f}s ({frame_count} frames)")
-                drive_cap(arduino,0,0); return False
+                _ = drive_cap(arduino,0,0); return False
 
             raw.truncate(0); raw.seek(0)
     finally:
@@ -1219,19 +1219,19 @@ def leave_square_to_best_corner(arduino, camera, sx, sy, cur_dir, target, target
             if conf == 1:
                 base_speed = 70
                 if erro > 5:  # Line on the right, turn left
-                    drive_cap(arduino, base_speed-20, base_speed+20, cap=ALIGN_CAP)
+                    _ = drive_cap(arduino, base_speed-20, base_speed+20, cap=ALIGN_CAP)
                 elif erro < -5:  # Line on the left, turn right
-                    drive_cap(arduino, base_speed+20, base_speed-20, cap=ALIGN_CAP)
+                    _ = drive_cap(arduino, base_speed+20, base_speed-20, cap=ALIGN_CAP)
                 else:  # Centered
-                    drive_cap(arduino, base_speed, base_speed, cap=ALIGN_CAP)
+                    _ = drive_cap(arduino, base_speed, base_speed, cap=ALIGN_CAP)
             else:
-                drive_cap(arduino, 60, 60, cap=ALIGN_CAP)  # Move slowly if the line is lost
+                _ = drive_cap(arduino, 60, 60, cap=ALIGN_CAP)  # Move slowly if the line is lost
 
             time.sleep(0.05)  # Frame rate control
             align_count += 1
             raw_temp.truncate(0)
     finally:
-        drive_cap(arduino, 0, 0); time.sleep(0.1)  # Stop before continuing
+        _ = drive_cap(arduino, 0, 0); time.sleep(0.1)  # Stop before continuing, ignore obstacle during initial alignment
         raw_temp.truncate(0)
 
     # Head toward the first intersection
