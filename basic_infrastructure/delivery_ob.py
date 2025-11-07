@@ -104,7 +104,7 @@ def is_border_node(node):
 # Pivot and post-pivot acquisition
 PIVOT_CAP       = _scale_speed(BASE_PIVOT_CAP, max_value=VELOCIDADE_MAX)
 PIVOT_MIN       = _scale_speed(BASE_PIVOT_MIN, min_value=80)
-PIVOT_TIMEOUT   = 1.0   # Timeout for pivot
+PIVOT_TIMEOUT   = 2.0   # Timeout for pivot (increased for reliability)
 SEEN_FRAMES     = 1       # Consecutive frames "seeing" the line before exiting the turn - reduced
 ALIGN_BASE      = _scale_speed(BASE_ALIGN_BASE, min_value=70)
 ALIGN_CAP       = _scale_speed(BASE_ALIGN_CAP, max_value=VELOCIDADE_MAX)
@@ -451,11 +451,8 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
     # For now, every orientation uses the standard logic
     pass
     seen_cnt=0; t0=time.time()
-    frame_count = 0
-    print(f"   Starting pivot ({side_hint}) - timeout={PIVOT_TIMEOUT}s")
     try:
         for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
-            frame_count += 1
             img=f.array
             img_display, err, conf = processar_imagem(img)
             v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
@@ -465,26 +462,20 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
             mask = build_binary_mask(img_display)
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
             display_frame = cv2.addWeighted(img_display, 0.7, mask_color, 0.3, 0)
-            elapsed = time.time() - t0
-            cv2.putText(display_frame, f"Pivot - Conf: {conf} [{elapsed:.1f}s]", (10, 30),
+            cv2.putText(display_frame, f"Pivot - Conf: {conf}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
             send_frame_to_stream(display_frame)
 
             if conf==1:
                 seen_cnt += 1
-                if frame_count % 5 == 0:
-                    print(f"   Pivot frame {frame_count}: Line detected! (seen_cnt={seen_cnt}/{SEEN_FRAMES})")
             else:
                 seen_cnt = 0
 
             if seen_cnt >= SEEN_FRAMES:
-                print(f"   Pivot successful after {elapsed:.2f}s ({frame_count} frames)")
                 _ = drive_cap(arduino, 0, 0)
-                time.sleep(0.2)  # Small pause to stabilize after pivot
                 return True
 
             if (time.time()-t0) > PIVOT_TIMEOUT:
-                print(f"   Pivot TIMEOUT after {elapsed:.2f}s ({frame_count} frames, conf={conf})")
                 _ = drive_cap(arduino,0,0); return False
             raw.truncate(0); raw.seek(0)
     finally:
