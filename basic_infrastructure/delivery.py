@@ -10,7 +10,7 @@ from picamera.exc import PiCameraValueError
 import cv2, time, numpy as np, serial, argparse, zmq, base64
 
 # --- CONFIGURAÇÃO CONTROLE REMOTO ---
-SERVER_IP = "192.168.137.157"  # IP do computador que roda o server.py
+SERVER_IP = "192.168.137.22"  # IP do computador que roda o server.py
 # --- FIM CONFIGURAÇÃO ---
 
 # ============================= PARÂMETROS (iguais ao robot2) =============================
