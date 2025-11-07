@@ -336,8 +336,12 @@ def enviar_comando_motor_serial(arduino, v_esq, v_dir, check_obstacle=False):
         time.sleep(0.01)  # Small delay to receive response
         if arduino.in_waiting > 0:
             response = arduino.readline().decode('utf-8').strip()
+            print(f"[DEBUG] Arduino response: '{response}'")  # DEBUG
             if response == "OB":
+                print("[DEBUG] OBSTACLE DETECTED!")  # DEBUG
                 return True  # Obstacle detected
+        else:
+            print("[DEBUG] No data waiting from Arduino")  # DEBUG
     return False  # No obstacle
 
 # ====================== Utilidades ======================
