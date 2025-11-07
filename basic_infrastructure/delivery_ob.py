@@ -1499,6 +1499,11 @@ def main():
         try: print("Arduino:", arduino.readline().decode('utf-8').strip())
         except Exception: pass
     except Exception: pass
+    
+    # Activate IR protection at startup
+    print("Activating IR protection...")
+    arduino.write(b'I1')
+    time.sleep(0.1)
 
     # Robot states
     manual_mode = False
