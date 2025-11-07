@@ -1437,6 +1437,16 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
             if obstacle:
                 print(f"   OBSTACLE detected while going to ({nxt[0]},{nxt[1]})")
                 
+                # Clear any pending "OB" messages from the buffer immediately
+                print("   Clearing pending obstacle messages...")
+                cleared = 0
+                while arduino.in_waiting > 0:
+                    msg = arduino.readline().decode('utf-8').strip()
+                    if msg:
+                        print(f"     Cleared: {msg}")
+                        cleared += 1
+                print(f"   Cleared {cleared} pending messages")
+                
                 # Add blocked edge
                 add_blocked_edge(cur_node, nxt)
                 print(f"   Blocked edge: {cur_node} <-> {nxt}")
@@ -1444,6 +1454,12 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 
                 # Execute U-turn to reorient the robot
                 handle_obstacle_uturn(arduino, camera)
+                
+                # Clear again after U-turn
+                print("   Clearing messages after U-turn...")
+                while arduino.in_waiting > 0:
+                    arduino.readline()
+                print("   Buffer cleared")
                 
                 # After U-turn, robot is facing back but not at any intersection
                 # We need to go back to the previous intersection (cur_node)
@@ -1460,10 +1476,49 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 
                 print(f"   Back at intersection {cur_node}")
                 
-                # Now that we're safely back at the intersection, re-enable IR protection
+                # Pause to ensure we're stable at the intersection
+                print("   Stabilizing at intersection...")
+                drive_cap(arduino, 0, 0)
+                time.sleep(0.3)
+                
+                # Clear buffer before moving
+                print("   Clearing buffer before moving forward...")
+                while arduino.in_waiting > 0:
+                    arduino.readline()
+                
+                # Move forward a bit to get away from any potential obstacle detection zone
+                # This ensures we're in a safe area before re-enabling IR
+                print("   Moving forward slightly to clear obstacle zone...")
+                drive_cap(arduino, 80, 80)
+                time.sleep(0.3)
+                drive_cap(arduino, 0, 0)
+                time.sleep(0.2)
+                
+                # Clear buffer again
+                print("   Clearing buffer after moving...")
+                while arduino.in_waiting > 0:
+                    arduino.readline()
+                
+                # Now that we're safely away from the obstacle zone, re-enable IR protection
                 print("   Re-enabling IR protection...")
-                arduino.write(b'I1')
+                arduino.write(b'I0')  # Disable first to clear any obstacle flag
                 time.sleep(0.1)
+                # Clear any response from I0
+                while arduino.in_waiting > 0:
+                    arduino.readline()
+                    
+                arduino.write(b'I1')  # Re-enable fresh
+                time.sleep(0.3)  # Wait for sensor to stabilize
+                
+                # Clear any pending "OB" messages
+                cleared_count = 0
+                while arduino.in_waiting > 0:
+                    msg = arduino.readline().decode('utf-8').strip()
+                    print(f"   Cleared message: {msg}")
+                    cleared_count += 1
+                
+                if cleared_count == 0:
+                    print("   No obstacle messages - path is clear!")
                 
                 # Now recalculate path avoiding the blocked edge
                 print(f"   Recalculating path from {cur_node} to {target}")
@@ -1484,6 +1539,10 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 print(f"   Path length: {len(new_path)} nodes")
                 if len(new_path) > 1:
                     print(f"   First move: {new_path[0]} -> {new_path[1]}")
+                
+                print("\n" + "="*60)
+                print("   CONTINUING WITH NEW PATH (after obstacle avoidance)")
+                print("="*60 + "\n")
                 
                 # Continue with new path from cur_node
                 # We don't know exactly which direction we're facing after returning,
