@@ -25,13 +25,13 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-DEFAULT_SPEED_LEVEL = 1  # Global adjustment (e.g., 0.5 = eco, 1.0 = standard, 2.0 = boost)
+DEFAULT_SPEED_LEVEL = 1.2  # Global adjustment (e.g., 0.5 = eco, 1.0 = standard, 2.0 = boost)
 speed = DEFAULT_SPEED_LEVEL
 
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
 BASE_SEARCH_SPEED = 110
-BASE_START_SPEED = 110
+BASE_START_SPEED = 95
 BASE_ALIGN_BASE = 95
 BASE_ALIGN_CAP = 150
 BASE_PIVOT_MIN = 150
