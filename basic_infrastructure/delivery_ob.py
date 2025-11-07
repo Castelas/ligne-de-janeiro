@@ -32,7 +32,7 @@ BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
 BASE_SEARCH_SPEED = 110
 BASE_START_SPEED = 95
-BASE_ALIGN_BASE = 110
+BASE_ALIGN_BASE = 95
 BASE_ALIGN_CAP = 150
 BASE_PIVOT_MIN = 150
 BASE_PIVOT_CAP = 150
@@ -369,7 +369,7 @@ def celebrate_delivery(arduino, duration=3.0, wiggle_speed=None, pause=0.3):
     print("Celebration finished.")
 
 def handle_obstacle_uturn(arduino, camera):
-    """Execute U-turn when obstacle is detected."""
+    """Execute U-turn when obstacle is detected - turn until line is found."""
     print("!!! OBSTACLE DETECTED - Executing U-turn !!!")
     
     # Disable IR protection
@@ -380,11 +380,54 @@ def handle_obstacle_uturn(arduino, camera):
         print(f"IR protection disabled: {response}")
     time.sleep(0.1)
     
-    # Execute U-turn
-    drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
-    time.sleep(UTURN_DURATION_S)
-    drive_cap(arduino, 0, 0)
-    time.sleep(0.5)
+    # Execute U-turn: rotate until the line is seen again
+    # Similar to pivot logic but looking for the line behind us
+    raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
+    seen_cnt = 0
+    t0 = time.time()
+    UTURN_TIMEOUT = 4.0  # Longer timeout for U-turn (up to 180 degrees)
+    UTURN_SEEN_FRAMES = 2  # Need to see line for 2 frames to confirm
+    
+    print("   Rotating to find line...")
+    try:
+        for f in camera.capture_continuous(raw, format="bgr", use_video_port=True):
+            img = f.array
+            img_display, err, conf = processar_imagem(img)
+            
+            # Turn in place (can choose direction, here using right turn)
+            v_esq, v_dir = PIVOT_MIN, -PIVOT_MIN
+            drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)
+            
+            # Send frame to stream during U-turn
+            mask = build_binary_mask(img_display)
+            mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
+            display_frame = cv2.addWeighted(img_display, 0.7, mask_color, 0.3, 0)
+            cv2.putText(display_frame, f"U-TURN - Conf: {conf}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            send_frame_to_stream(display_frame)
+            
+            if conf == 1:
+                seen_cnt += 1
+            else:
+                seen_cnt = 0
+            
+            if seen_cnt >= UTURN_SEEN_FRAMES:
+                print("   Line found after U-turn!")
+                drive_cap(arduino, 0, 0)
+                time.sleep(0.3)
+                break
+            
+            if (time.time() - t0) > UTURN_TIMEOUT:
+                print("   U-turn timeout - line not found!")
+                drive_cap(arduino, 0, 0)
+                break
+            
+            raw.truncate(0)
+            raw.seek(0)
+    finally:
+        raw.truncate(0)
+        drive_cap(arduino, 0, 0)
+        time.sleep(0.2)
     
     # Re-enable IR protection
     arduino.write(b'I1')
