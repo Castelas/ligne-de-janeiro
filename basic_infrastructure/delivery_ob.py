@@ -1504,6 +1504,9 @@ def main():
     print("Activating IR protection...")
     arduino.write(b'I1')
     time.sleep(0.1)
+    if arduino.in_waiting > 0:
+        response = arduino.readline().decode('utf-8').strip()
+        print(f"IR protection response: {response}")
 
     # Robot states
     manual_mode = False
