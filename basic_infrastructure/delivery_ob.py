@@ -104,7 +104,7 @@ def is_border_node(node):
 # Pivot and post-pivot acquisition
 PIVOT_CAP       = _scale_speed(BASE_PIVOT_CAP, max_value=VELOCIDADE_MAX)
 PIVOT_MIN       = _scale_speed(BASE_PIVOT_MIN, min_value=80)
-PIVOT_TIMEOUT   = 1   # Slightly increased to turn a bit more
+PIVOT_TIMEOUT   = 1.5   # Slightly increased to turn a bit more
 SEEN_FRAMES     = 1       # Consecutive frames "seeing" the line before exiting the turn - reduced
 ALIGN_BASE      = _scale_speed(BASE_ALIGN_BASE, min_value=70)
 ALIGN_CAP       = _scale_speed(BASE_ALIGN_CAP, max_value=VELOCIDADE_MAX)
