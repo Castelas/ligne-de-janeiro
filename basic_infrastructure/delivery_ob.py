@@ -1433,10 +1433,21 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 # Add blocked edge
                 add_blocked_edge(cur_node, nxt)
                 
-                # Execute U-turn
+                # Execute U-turn to reorient the robot
                 handle_obstacle_uturn(arduino, camera)
                 
-                # Recalculate path avoiding the blocked edge
+                # After U-turn, robot is facing back but not at any intersection
+                # We need to go back to the previous intersection (cur_node)
+                print(f"   Returning to previous intersection {cur_node}...")
+                back_success, back_obstacle = go_to_next_intersection(arduino, camera, expected_node=cur_node)
+                
+                if not back_success:
+                    print("   ERROR: Could not return to previous intersection after obstacle!")
+                    return cur_node, cur_dir, False
+                
+                print(f"   Back at intersection {cur_node}")
+                
+                # Now recalculate path avoiding the blocked edge
                 print(f"   Recalculating path from {cur_node} to {target}")
                 new_path = a_star(cur_node, target, GRID_NODES)
                 
@@ -1446,9 +1457,10 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 
                 print(f"   NEW PATH: {' -> '.join([f'({x},{y})' for x,y in new_path])}")
                 
-                # Continue with new path (already at cur_node)
-                # Recursively call follow_path with the new route
-                return follow_path(arduino, cur_node, cur_dir, new_path, camera, cur_dir, target)
+                # Continue with new path from cur_node
+                # We don't know exactly which direction we're facing after returning,
+                # so let follow_path figure it out
+                return follow_path(arduino, cur_node, cur_dir, new_path, camera, None, target)
             else:
                 print(f"   Failed to reach ({nxt[0]},{nxt[1]})")
                 return cur_node, cur_dir, False
