@@ -31,7 +31,7 @@ speed = DEFAULT_SPEED_LEVEL
 BASE_VELOCIDADE_BASE = 120
 BASE_VELOCIDADE_CURVA = 120
 BASE_SEARCH_SPEED = 110
-BASE_START_SPEED = 110
+BASE_START_SPEED = 95
 BASE_ALIGN_BASE = 95
 BASE_ALIGN_CAP = 150
 BASE_PIVOT_MIN = 150
@@ -337,6 +337,7 @@ def calcular_velocidades_auto(erro, base_speed):
 
 def enviar_comando_motor_serial(arduino, v_esq, v_dir, check_obstacle=False):
     comando = f"C {v_dir} {v_esq}"
+    print(f"[DEBUG] Sending to Arduino: '{comando}' (check_obstacle={check_obstacle})")
     arduino.write(comando.encode('utf-8'))
     # Only check for obstacle if requested (to avoid blocking during pivot/initial phases)
     if check_obstacle:
@@ -461,11 +462,13 @@ def is_edge_blocked(node1, node2):
 
 # ====================== Blind start / Pivot (2 phases) / Intersection ======================
 def straight_until_seen_then_lost(arduino, camera):
+    print(f"[DEBUG] straight_until_seen_then_lost: START_SPEED={START_SPEED}")
     raw = PiRGBArray(camera, size=(IMG_WIDTH, IMG_HEIGHT))
     saw=False; lost=0; t0=time.time()
 
     # Start with a higher speed to cover more distance
     initial_speed = int(START_SPEED * 1.15)  # 15% faster (less than before)
+    print(f"[DEBUG] Initial straight: sending motors at speed {initial_speed}")
     _ = drive_cap(arduino, initial_speed, initial_speed); time.sleep(0.1)
 
     try:
