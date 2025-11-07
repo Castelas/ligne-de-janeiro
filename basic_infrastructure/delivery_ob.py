@@ -962,11 +962,13 @@ def go_to_next_intersection(arduino, camera, expected_node=None):
                 v_esq, v_dir = 0, 0
 
             elif state == 'LOST':
-                # Search logic
-                turn = SEARCH_SPEED if last_err >= 0 else -SEARCH_SPEED
+                # Search logic - use higher speed for faster recovery
+                turn = max(110, SEARCH_SPEED) if last_err >= 0 else -max(110, SEARCH_SPEED)
                 v_esq, v_dir = int(turn), int(-turn)
 
-            obs = drive_cap(arduino, v_esq, v_dir, cap=ALIGN_CAP, check_obstacle=True)
+            # Use higher cap for LOST state to allow faster search
+            cap_to_use = 150 if state == 'LOST' else ALIGN_CAP
+            obs = drive_cap(arduino, v_esq, v_dir, cap=cap_to_use, check_obstacle=True)
             if obs:
                 obstacle_detected = True
                 print("!!! OBSTACLE DETECTED during navigation !!!")
