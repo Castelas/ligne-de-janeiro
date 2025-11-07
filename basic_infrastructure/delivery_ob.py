@@ -1439,6 +1439,8 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 
                 # Add blocked edge
                 add_blocked_edge(cur_node, nxt)
+                print(f"   Blocked edge: {cur_node} <-> {nxt}")
+                print(f"   All blocked edges: {blocked_edges}")
                 
                 # Execute U-turn to reorient the robot
                 handle_obstacle_uturn(arduino, camera)
@@ -1471,7 +1473,17 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                     print("   ERROR: No alternative path found!")
                     return cur_node, cur_dir, False
                 
+                # Verify that the new path doesn't immediately use the blocked edge
+                if len(new_path) > 1 and new_path[1] == nxt:
+                    print(f"   WARNING: A* returned path using blocked edge {cur_node} -> {nxt}!")
+                    print(f"   This should not happen - A* should avoid blocked edges.")
+                    # This indicates a bug in the A* implementation or edge blocking
+                    return cur_node, cur_dir, False
+                
                 print(f"   NEW PATH: {' -> '.join([f'({x},{y})' for x,y in new_path])}")
+                print(f"   Path length: {len(new_path)} nodes")
+                if len(new_path) > 1:
+                    print(f"   First move: {new_path[0]} -> {new_path[1]}")
                 
                 # Continue with new path from cur_node
                 # We don't know exactly which direction we're facing after returning,
