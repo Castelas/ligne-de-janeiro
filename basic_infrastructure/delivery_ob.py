@@ -1544,10 +1544,15 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 print("   CONTINUING WITH NEW PATH (after obstacle avoidance)")
                 print("="*60 + "\n")
                 
-                # Continue with new path from cur_node
-                # We don't know exactly which direction we're facing after returning,
-                # so let follow_path figure it out
-                return follow_path(arduino, cur_node, cur_dir, new_path, camera, None, target)
+                # After U-turn and return, robot is facing opposite direction from original
+                # Original direction was 'want' (direction towards nxt)
+                # After U-turn, we're facing opposite (180 degrees)
+                opposite_dir = (want + 2) % 4  # 180 degrees opposite
+                print(f"   Original direction towards blocked node: {dir_name(want)}")
+                print(f"   Current direction after U-turn + return: {dir_name(opposite_dir)}")
+                
+                # Continue with new path from cur_node with corrected direction
+                return follow_path(arduino, cur_node, opposite_dir, new_path, camera, None, target)
             else:
                 print(f"   Failed to reach ({nxt[0]},{nxt[1]})")
                 return cur_node, cur_dir, False
