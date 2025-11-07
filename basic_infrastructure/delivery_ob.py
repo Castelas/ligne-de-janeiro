@@ -67,7 +67,7 @@ def _scale_speed(value, exponent=1.0, min_value=None, max_value=None):
     return int(round(scaled))
 
 VELOCIDADE_CURVA = _scale_speed(BASE_VELOCIDADE_CURVA)
-Kp = 1.0              # Ganho do controlador P - aumentado para melhor controle
+Kp = 1.0              # P controller gain - increased for better control
 VELOCIDADE_MAX = 255
 E_MAX_PIX       = IMG_WIDTH // 2
 V_MIN           = 0
@@ -75,9 +75,9 @@ SEARCH_SPEED    = _scale_speed(BASE_SEARCH_SPEED, max_value=VELOCIDADE_MAX)
 LOST_MAX_FRAMES = 5
 DEAD_BAND       = 3
 ROI_BOTTOM_FRAC = 0.55
-MIN_AREA_FRAC   = 0.003  # Ainda mais reduzido para detectar linhas
-MAX_AREA_FRAC   = 0.3    # Um pouco mais tolerante
-ASPECT_MIN      = 2.0    # Ainda menos rigoroso
+MIN_AREA_FRAC   = 0.003  # Further reduced to detect lines
+MAX_AREA_FRAC   = 0.3    # Slightly more tolerant
+ASPECT_MIN      = 2.0    # Less strict
 LINE_POLARITY   = 'white'               # Forced back to white
 USE_ADAPTIVE    = False
 
@@ -86,7 +86,7 @@ BAUDRATE = 115200
 
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 squares -> 5x5 nodes
-START_SPEED  = _scale_speed(BASE_START_SPEED, max_value=VELOCIDADE_MAX)  # reta cega
+START_SPEED  = _scale_speed(BASE_START_SPEED, max_value=VELOCIDADE_MAX)  # blind straight
 TURN_SPEED   = _scale_speed(BASE_TURN_SPEED, max_value=VELOCIDADE_MAX)
 
 # Debug: Print calculated speeds at startup
@@ -523,7 +523,7 @@ def spin_in_place_until_seen(arduino, camera, side_hint='L', orient=0):
             v_esq, v_dir = turn_sign*PIVOT_MIN, -turn_sign*PIVOT_MIN
             _ = drive_cap(arduino, v_esq, v_dir, cap=PIVOT_CAP)  # Ignore obstacle detection during pivot
 
-            # Enviar frame para o stream durante o pivot
+            # Send frame to stream during pivot
             mask = build_binary_mask(img_display)
             mask_color = cv2.applyColorMap(mask, cv2.COLORMAP_HOT)
             display_frame = cv2.addWeighted(img_display, 0.7, mask_color, 0.3, 0)
