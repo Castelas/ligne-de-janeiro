@@ -1488,7 +1488,7 @@ def main():
     else:
         print("Could not send first frame, continuing...")
 
-    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=1); time.sleep(2)
+    arduino = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=0.01); time.sleep(2)
     try:
         arduino.write(b'A10')
         try: print("Arduino:", arduino.readline().decode('utf-8').strip())
