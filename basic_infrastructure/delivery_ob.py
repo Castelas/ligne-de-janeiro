@@ -87,7 +87,14 @@ BAUDRATE = 115200
 # ======== DELIVERY (extra) ========
 GRID_NODES = (5, 5)       # 4x4 squares -> 5x5 nodes
 START_SPEED  = _scale_speed(BASE_START_SPEED, max_value=VELOCIDADE_MAX)  # reta cega
-TURN_SPEED   = _scale_speed(BASE_TURN_SPEED, max_value=VELOCIDADE_MAX)   # giros 90/180 ajustados
+TURN_SPEED   = _scale_speed(BASE_TURN_SPEED, max_value=VELOCIDADE_MAX)
+
+# Debug: Print calculated speeds at startup
+print(f"[SPEED CONFIG] Level: {DEFAULT_SPEED_LEVEL}")
+print(f"[SPEED CONFIG] Multiplier: {speed_multiplier:.3f}")
+print(f"[SPEED CONFIG] BASE_START_SPEED: {BASE_START_SPEED} -> START_SPEED: {START_SPEED}")
+print(f"[SPEED CONFIG] BASE_ALIGN_BASE: {BASE_ALIGN_BASE} -> ALIGN_BASE: {_scale_speed(BASE_ALIGN_BASE)}")
+print(f"[SPEED CONFIG] BASE_SEARCH_SPEED: {BASE_SEARCH_SPEED} -> SEARCH_SPEED: {SEARCH_SPEED}")   # giros 90/180 ajustados
 
 # Obstacle management
 blocked_edges = set()  # Set of tuples (node1, node2) representing blocked edges
