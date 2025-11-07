@@ -1588,7 +1588,20 @@ def main():
     # Activate IR protection at startup
     print("Activating IR protection...")
     arduino.write(b'I1')
+    time.sleep(0.2)  # Wait for sensor to stabilize
+    
+    # Clear any initial "OB" messages from the buffer (in case there's something in front)
+    while arduino.in_waiting > 0:
+        response = arduino.readline().decode('utf-8').strip()
+        if response:
+            print(f"IR protection response: {response}")
+    
+    # Reset obstacle flag in Arduino by sending I1 again if needed
+    print("Resetting obstacle detection...")
+    arduino.write(b'I0')  # Disable briefly
     time.sleep(0.1)
+    arduino.write(b'I1')  # Re-enable
+    time.sleep(0.2)
     if arduino.in_waiting > 0:
         response = arduino.readline().decode('utf-8').strip()
         print(f"IR protection response: {response}")
