@@ -39,6 +39,7 @@ bool task3on=false ;        // lancement de la tache 3 d'accélération progress
 bool task4on=false ;        // lancement de la tache 4 de détection de collision par IR
 bool task5on=false ;        // lancement de la tache 5 de rotation du servomoteur
 bool obst=false ;           // obstacle détecté
+int obst_count=0 ;          // compteur de détections consécutives d'obstacle
 
 char c,CharIn,m;
 bool ConnOn ;          // indique si la carte est connectée
@@ -630,9 +631,14 @@ inline void task4() {
   if (((int)millis()-tim4)>0)  // si on a atteint le temps programmé
   {
     long d = sr04.Distance(); // distance en cm
-    // envia "OB" apenas na transição false->true quando distância < 10 cm
+    
+    // Detecta obstáculo (distância < 10 cm)
     if ((d > 0) && (d < 10)) {
-      if (!obst) {
+      // Incrementa contador de detecções consecutivas
+      obst_count++;
+      
+      // Só notifica após 5 detecções consecutivas (reduz falsos positivos)
+      if (obst_count >= 5 && !obst) {
         obst = true;
         // parar motores imediatamente
         nivM1 = 0; nivM2 = 0;
@@ -642,6 +648,9 @@ inline void task4() {
         Serial.println("OB");   // notifica Raspberry apenas uma vez (transição)
       }
     } else {
+      // Reseta contador quando não detecta obstáculo
+      obst_count = 0;
+      
       // limpa flag quando retorna seguro (>= 10 cm) para permitir nova notificação
       if (obst && d >= 10) {
         obst = false;
