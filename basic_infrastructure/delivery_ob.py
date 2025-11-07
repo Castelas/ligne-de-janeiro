@@ -375,6 +375,10 @@ def handle_obstacle_uturn(arduino, camera):
     # Disable IR protection
     arduino.write(b'I0')
     time.sleep(0.1)
+    if arduino.in_waiting > 0:
+        response = arduino.readline().decode('utf-8').strip()
+        print(f"IR protection disabled: {response}")
+    time.sleep(0.1)
     
     # Execute U-turn
     drive_cap(arduino, TURN_SPEED, -TURN_SPEED)
