@@ -25,7 +25,7 @@ THETA_MERGE_DEG     = 6
 ORTH_TOL_DEG        = 15
 PAR_TOL_DEG         = 8
 
-DEFAULT_SPEED_LEVEL = 1.1  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
+DEFAULT_SPEED_LEVEL = 0.8  # Ajuste global (ex.: 0.5 = eco, 1.0 = padrão, 2.0 = boost)
 speed = DEFAULT_SPEED_LEVEL
 
 BASE_VELOCIDADE_BASE = 120
