@@ -1499,11 +1499,6 @@ def main():
         try: print("Arduino:", arduino.readline().decode('utf-8').strip())
         except Exception: pass
     except Exception: pass
-    
-    # Activate IR protection at startup
-    print("Activating IR protection...")
-    arduino.write(b'I1')
-    time.sleep(0.1)
 
     # Robot states
     manual_mode = False
@@ -1592,6 +1587,11 @@ def main():
 
         print(f"PATH: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
         send_basic_frame(camera, f"Navigating: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
+
+        # Activate IR protection before starting navigation between intersections
+        print("Activating IR protection for navigation...")
+        arduino.write(b'I1')
+        time.sleep(0.1)
 
         _, cur_dir, ok = follow_path(arduino, start_node, cur_dir, optimized_path, camera, arrival_dir, target)
         if not ok:
