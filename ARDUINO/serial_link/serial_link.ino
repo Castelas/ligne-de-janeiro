@@ -637,8 +637,8 @@ inline void task4() {
       // Incrementa contador de detecções consecutivas
       obst_count++;
       
-      // Só notifica após 5 detecções consecutivas (reduz falsos positivos)
-      if (obst_count >= 5 && !obst) {
+      // Só notifica após 2 detecções consecutivas (200ms total, reduz falsos positivos)
+      if (obst_count >= 2 && !obst) {
         obst = true;
         // parar motores imediatamente
         nivM1 = 0; nivM2 = 0;
