@@ -422,21 +422,13 @@ def handle_obstacle_uturn(arduino, camera):
                 print("   Line found after U-turn!")
                 drive_cap(arduino, 0, 0)
                 time.sleep(0.3)
-                
-                # Re-enable IR protection after finding the line
-                arduino.write(b'I1')
-                time.sleep(0.1)
-                print("   IR protection re-enabled")
+                # Don't re-enable IR yet - will be done after returning to safe intersection
                 break
             
             if (time.time() - t0) > UTURN_TIMEOUT:
                 print("   U-turn timeout - line not found!")
                 drive_cap(arduino, 0, 0)
-                
-                # Re-enable IR protection even on timeout
-                arduino.write(b'I1')
-                time.sleep(0.1)
-                print("   IR protection re-enabled (timeout)")
+                # Don't re-enable IR yet - will be done after returning to safe intersection
                 break
             
             raw.truncate(0)
@@ -1444,7 +1436,8 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                 
                 # After U-turn, robot is facing back but not at any intersection
                 # We need to go back to the previous intersection (cur_node)
-                print(f"   Returning to previous intersection {cur_node}...")
+                # IR protection is still disabled to avoid re-detecting the obstacle
+                print(f"   Returning to previous intersection {cur_node} (IR still disabled)...")
                 back_success, back_obstacle = go_to_next_intersection(arduino, camera, expected_node=cur_node)
                 
                 if not back_success:
@@ -1452,6 +1445,11 @@ def follow_path(arduino, start_node, start_dir, path, camera, arrival_dir=None, 
                     return cur_node, cur_dir, False
                 
                 print(f"   Back at intersection {cur_node}")
+                
+                # Now that we're safely back at the intersection, re-enable IR protection
+                print("   Re-enabling IR protection...")
+                arduino.write(b'I1')
+                time.sleep(0.1)
                 
                 # Now recalculate path avoiding the blocked edge
                 print(f"   Recalculating path from {cur_node} to {target}")
