@@ -1585,26 +1585,9 @@ def main():
         except Exception: pass
     except Exception: pass
     
-    # Activate IR protection at startup
-    print("Activating IR protection...")
-    arduino.write(b'I1')
-    time.sleep(0.2)  # Wait for sensor to stabilize
-    
-    # Clear any initial "OB" messages from the buffer (in case there's something in front)
-    while arduino.in_waiting > 0:
-        response = arduino.readline().decode('utf-8').strip()
-        if response:
-            print(f"IR protection response: {response}")
-    
-    # Reset obstacle flag in Arduino by sending I1 again if needed
-    print("Resetting obstacle detection...")
-    arduino.write(b'I0')  # Disable briefly
-    time.sleep(0.1)
-    arduino.write(b'I1')  # Re-enable
-    time.sleep(0.2)
-    if arduino.in_waiting > 0:
-        response = arduino.readline().decode('utf-8').strip()
-        print(f"IR protection response: {response}")
+    # NOTE: IR protection will be activated AFTER leaving the square
+    # to avoid false positives during initial positioning
+    print("IR protection will be activated after leaving square...")
 
     # Robot states
     manual_mode = False
@@ -1693,6 +1676,14 @@ def main():
 
         print(f"PATH: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
         send_basic_frame(camera, f"Navigating: {' -> '.join([f'({x},{y})' for x,y in optimized_path])}")
+
+        # NOW activate IR protection for navigation between intersections
+        print("Activating IR protection for navigation...")
+        arduino.write(b'I1')
+        time.sleep(0.1)
+        # Clear any pending messages
+        while arduino.in_waiting > 0:
+            arduino.readline()
 
         _, cur_dir, ok = follow_path(arduino, start_node, cur_dir, optimized_path, camera, arrival_dir, target)
         if not ok:
